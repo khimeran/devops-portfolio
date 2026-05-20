@@ -145,5 +145,41 @@
   docker-compose — базовые концепции усвоены</p>
     </div>
 
+    <h2>Прогресс по темам</h2>
+    <div class="card" id="topics-container">
+      <p>Загрузка...</p>
+    </div>
+
+    <script>
+      fetch('http://localhost:8000/topics')
+        .then(r => r.json())
+        .then(topics => {
+          const container =
+  document.getElementById('topics-container');
+          container.innerHTML = topics.map(t => `
+            <div style="margin: 0.8rem 0">
+              <div style="display:flex; 
+  justify-content:space-between; margin-bottom:4px">
+                <span>${t.name}</span>
+                <span 
+  style="color:#58a6ff">${t.progress}%</span>
+              </div>
+              <div style="background:#21262d; 
+  border-radius:4px; height:8px">
+                <div style="background:#238636; 
+  width:${t.progress}%; height:8px; 
+  border-radius:4px"></div>
+              </div>
+              <small 
+  style="color:#8b949e">${t.notes}</small>
+            </div>
+          `).join('');
+        })
+        .catch(() => {
+          document.getElementById('topics-container').innerHTML =
+            '<p style="color:#8b949e">API недоступен — запусти docker compose up</p>';
+        });
+    </script>
+
   </body>
   </html>
