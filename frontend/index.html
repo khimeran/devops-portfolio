@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+  <html lang="ru">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, 
+  initial-scale=1.0">
+    <title>DevOps Portfolio — Конспект</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem;
+        background: #0d1117;
+        color: #e6edf3;
+      }
+      h1 { color: #58a6ff; border-bottom: 2px solid #21262d;
+   padding-bottom: 0.5rem; }
+      h2 { color: #79c0ff; margin-top: 2rem; }
+      h3 { color: #d2a8ff; }
+      .card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 1.2rem;
+        margin: 1rem 0;
+      }
+      code {
+        background: #21262d;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-family: monospace;
+        color: #79c0ff;
+      }
+      pre {
+        background: #21262d;
+        padding: 1rem;
+        border-radius: 8px;
+        overflow-x: auto;
+        border-left: 3px solid #58a6ff;
+      }
+      pre code { background: none; padding: 0; }
+      .badge {
+        display: inline-block;
+        padding: 0.2rem 0.7rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        margin: 0.2rem;
+      }
+      .green { background: #1a4731; color: #3fb950; }
+      .blue  { background: #1c2a3a; color: #58a6ff; }
+      .purple{ background: #2d1a47; color: #d2a8ff; }
+      .score {
+        font-size: 3rem;
+        font-weight: bold;
+        color: #3fb950;
+        text-align: center;
+        margin: 1rem 0;
+      }
+      .cmd { color: #ffa657; }
+    </style>
+  </head>
+  <body>
+
+    <h1>DevOps Portfolio</h1>
+    <p>Дата: 20 мая 2026 &nbsp;|&nbsp; Сессия #1</p>
+
+    <h2>Что сделали</h2>
+    <div class="card">
+      <span class="badge green">Git</span>
+      <span class="badge blue">Docker</span>
+      <span class="badge blue">Docker Compose</span>
+      <span class="badge purple">FastAPI</span>
+      <span class="badge purple">PostgreSQL</span>
+      <span class="badge purple">Redis</span>
+      <span class="badge purple">Prometheus</span>
+      <span class="badge purple">Grafana</span>
+    </div>
+
+    <h2>Структура проекта</h2>
+    <div class="card">
+      <pre><code>devops-portfolio/
+  ├── frontend/          # Этот сайт
+  ├── backend/           # FastAPI приложение
+  │   ├── app/
+  │   │   ├── main.py
+  │   │   └── __init__.py
+  │   ├── Dockerfile
+  │   └── requirements.txt
+  ├── db/                # Миграции PostgreSQL
+  ├── monitoring/        # Prometheus + Grafana
+  ├── scripts/           # Bash скрипты
+  ├── docker-compose.yml
+  └── .github/workflows/ # GitHub Actions</code></pre>
+    </div>
+
+    <h2>Git — система контроля версий</h2>
+    <div class="card">
+      <p>Git запоминает каждое изменение файлов. Как
+  "сохранение игры" — можно вернуться к любой точке.</p>
+      <h3>Основные команды</h3>
+      <pre><code><span class="cmd">git add README.md</span>
+         # добавить файл в список для сохранения
+  <span class="cmd">git commit -m "описание"</span>  #
+  создать сохранение с описанием
+  <span class="cmd">git push</span>                 #
+  отправить на GitHub
+  <span class="cmd">git remote -v</span>            #
+  показать адрес удалённого репозитория</code></pre>
+    </div>
+
+    <h2>Docker Compose</h2>
+    <div class="card">
+      <p>Файл <code>docker-compose.yml</code> описывает все
+  сервисы проекта. Один файл — весь стек.</p>
+      <h3>Сервисы и их порты</h3>
+      <pre><code>backend    → localhost:8000   # FastAPI API
+  db         → localhost:5432   # PostgreSQL
+  redis      → localhost:6379   # Redis (кэш)
+  prometheus → localhost:9090   # Метрики
+  grafana    → localhost:3030   # Дашборды</code></pre>
+      <h3>Основные команды</h3>
+      <pre><code><span class="cmd">docker compose up
+  --build</span>  # запустить всё (с пересборкой)
+  <span class="cmd">docker compose down</span>        #
+  остановить и удалить контейнеры
+  <span class="cmd">docker ps</span>                  #
+  список запущенных контейнеров</code></pre>
+    </div>
+
+    <h2>FastAPI приложение</h2>
+    <div class="card">
+      <p>Бэкенд написан на Python с использованием FastAPI.
+  Отвечает на HTTP запросы.</p>
+      <pre><code><span class="cmd">GET /</span>       →
+  {"status": "ok", "message": "..."}
+  <span class="cmd">GET /health</span> → {"status":
+  "healthy"}</code></pre>
+    </div>
+
+    <h2>Результат теста</h2>
+    <div class="card">
+      <div class="score">6 / 6</div>
+      <p style="text-align:center">Git, Docker,
+  docker-compose — базовые концепции усвоены</p>
+    </div>
+
+  </body>
+  </html>
