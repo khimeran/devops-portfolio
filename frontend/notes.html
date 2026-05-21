@@ -122,6 +122,10 @@
     <a href="#sql">SQL и PostgreSQL</a>
     <a href="#html-css">HTML и CSS</a>
     <a href="#github-actions">GitHub Actions</a>
+    <a href="#ansible">Ansible</a>
+    <a href="#jenkins">Jenkins</a>
+    <a href="#ha-clusters">Отказоустойчивые кластеры</a>
+    <a href="#jira-confluence">Jira / Confluence</a>
     <a href="#devops-tips" style="margin-top:1rem; border-top:1px solid #30363d; padding-top:1rem; color:#f0883e;">⚡ Важно для DevOps</a>
   </div>
 
@@ -856,6 +860,691 @@ jobs:
 
       <div class="note">
         <strong>Запомни:</strong> <code>uses: actions/checkout@v4</code> — это готовые блоки от GitHub, как кубики Lego. Не пишем всё с нуля — берём готовое и собираем pipeline из блоков.
+      </div>
+    </section>
+
+    <!-- ANSIBLE -->
+    <section id="ansible">
+      <h1>Ansible — автоматизация конфигурации</h1>
+      <p>Ansible — инструмент для автоматического управления настройками серверов. Вместо того чтобы вручную настраивать каждый сервер по-очереди, ты описываешь в YAML файле что должно быть установлено и настроено — Ansible сам всё сделает на всех серверах.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Представь что у тебя 50 серверов и на каждый нужно установить nginx, создать пользователя и скопировать конфиг. Вручную — это 50 раз одно и то же. С Ansible — пишешь инструкцию один раз, запускаешь — готово на всех сразу.
+      </div>
+
+      <h2>Ключевые концепции</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Основные понятия</span>
+        </div>
+        <pre>Control node    — твой компьютер с которого запускается Ansible
+Managed nodes   — серверы которыми управляет Ansible
+Inventory       — список серверов (адреса, группы)
+Playbook        — YAML файл с инструкциями что делать
+Task            — одно конкретное действие (установить пакет, скопировать файл)
+Role            — набор tasks сгруппированных по функции (nginx, postgres)
+Module          — встроенный инструмент Ansible (apt, copy, service, template)
+
+# Ansible не требует агента на серверах!
+# Подключается по SSH — нужен только SSH доступ и Python на сервере</pre>
+      </div>
+
+      <h2>Inventory — список серверов</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">INI</span>
+          <span>inventory/hosts</span>
+        </div>
+        <pre>[webservers]
+web1.example.com
+web2.example.com  ansible_user=ubuntu  ansible_port=2222
+
+[databases]
+db1.example.com  ansible_host=192.168.1.10
+
+[production:children]
+# группа из других групп
+webservers
+databases
+
+# [название_группы] — объединить серверы логически
+# ansible_user — под каким пользователем подключаться
+# ansible_host — IP если имя не резолвится</pre>
+      </div>
+
+      <h2>Playbook — главный файл инструкций</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>playbook.yml — установить и запустить nginx</span>
+        </div>
+        <pre>---
+# --- обязательно в начале YAML файла
+
+- name: Настроить веб-серверы
+  # name — описание для читаемости
+
+  hosts: webservers
+  # hosts — на каких серверах выполнять (из inventory)
+
+  become: true
+  # become: true — выполнять с правами root (sudo)
+
+  tasks:
+    # tasks — список действий по порядку
+
+    - name: Установить nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: true
+      # apt — модуль для управления пакетами (Ubuntu/Debian)
+      # state: present — убедиться что установлен
+      # state: absent — убедиться что удалён
+
+    - name: Скопировать конфиг nginx
+      copy:
+        src: files/nginx.conf
+        dest: /etc/nginx/nginx.conf
+        owner: root
+        mode: '0644'
+      # copy — скопировать файл с control node на сервер
+
+    - name: Запустить и включить nginx
+      service:
+        name: nginx
+        state: started
+        enabled: true
+      # service — управление системными сервисами
+      # enabled: true — запускать автоматически при загрузке
+
+    - name: Создать пользователя deploy
+      user:
+        name: deploy
+        shell: /bin/bash
+        groups: sudo
+      # user — управление пользователями</pre>
+      </div>
+
+      <h2>Запуск Ansible</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Основные команды</span>
+        </div>
+        <pre># Проверить подключение ко всем серверам:
+ansible all -m ping -i inventory/hosts
+# all — все серверы из inventory
+# -m ping — использовать модуль ping
+# -i — указать файл inventory
+
+# Запустить playbook:
+ansible-playbook -i inventory/hosts playbook.yml
+
+# Режим проверки (ничего не менять, только показать что будет):
+ansible-playbook -i inventory/hosts playbook.yml --check
+
+# Запустить только на конкретной группе:
+ansible-playbook -i inventory/hosts playbook.yml --limit webservers
+
+# Запустить только определённые задачи (по тегу):
+ansible-playbook -i inventory/hosts playbook.yml --tags nginx
+
+# Вывод: changed=2 — что изменилось
+#        ok=3     — что уже было в нужном состоянии
+#        failed=0 — что не получилось</pre>
+      </div>
+
+      <h2>Идемпотентность — главный принцип</h2>
+
+      <div class="note">
+        <strong>Идемпотентность</strong> — запусти playbook 10 раз, результат всегда одинаковый. Если nginx уже установлен — Ansible не будет устанавливать снова. Это безопасно: можно запускать повторно без риска сломать то что работает. <code>state: present</code> означает "убедись что есть", а не "установи заново".
+      </div>
+
+      <div class="error-block">
+        <div class="title">UNREACHABLE — не может подключиться к серверу</div>
+        <pre>UNREACHABLE! => {"msg": "Failed to connect to the host via ssh"}</pre>
+        <p>Причина: неверный IP, закрытый порт SSH, неверный ключ, или сервер выключен.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Диагностика</div>
+        <pre>ssh ubuntu@192.168.1.10               # проверить SSH вручную
+ansible all -m ping -vvv -i hosts     # подробный вывод (-vvv)
+# в inventory проверить ansible_user, ansible_port, ansible_host</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Changed: 0 но ошибки нет — ничего не применилось</div>
+        <p>Причина: задача уже в нужном состоянии (идемпотентность). Это нормально — Ansible не меняет то что уже правильно.</p>
+      </div>
+    </section>
+
+    <!-- JENKINS -->
+    <section id="jenkins">
+      <h1>Jenkins — CI/CD сервер</h1>
+      <p>Jenkins — сервер автоматизации. Он следит за репозиторием и при каждом изменении автоматически: собирает приложение, запускает тесты, деплоит на сервер. Это и называется CI/CD — непрерывная интеграция и доставка.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Jenkins — как конвейер на заводе. Ты положил деталь (сделал push в Git) — конвейер сам проверил, собрал, упаковал и отправил. Каждый шаг автоматический, ты только следишь за результатом.
+      </div>
+
+      <div class="note">
+        <strong>Разница с GitHub Actions:</strong> GitHub Actions встроен в GitHub и бесплатен для открытых проектов. Jenkins — самостоятельный сервер, его нужно развернуть и поддерживать. Зато Jenkins более гибкий и популярен в корпоративной среде.
+      </div>
+
+      <h2>Установка через Docker</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>docker-compose.yml — добавить Jenkins</span>
+        </div>
+        <pre>jenkins:
+  image: jenkins/jenkins:lts
+  # lts — Long Term Support, стабильная версия
+
+  ports:
+    - "8080:8080"    # веб-интерфейс
+    - "50000:50000"  # подключение агентов Jenkins
+
+  volumes:
+    - jenkins_home:/var/jenkins_home
+    # jenkins_home — постоянное хранилище данных Jenkins
+
+volumes:
+  jenkins_home:</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Получить первоначальный пароль</span>
+        </div>
+        <pre>docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+# Этот пароль вводится при первом входе на http://localhost:8080</pre>
+      </div>
+
+      <h2>Jenkinsfile — описание pipeline</h2>
+      <p>Jenkinsfile хранится в корне репозитория. Jenkins читает его и знает что делать при каждом push.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">GROOVY</span>
+          <span>Jenkinsfile — декларативный pipeline</span>
+        </div>
+        <pre>pipeline {
+    // pipeline — объявляем что это Jenkins pipeline
+
+    agent any
+    // agent any — запускать на любом доступном агенте (исполнителе)
+
+    environment {
+        IMAGE_NAME = 'my-app'
+        // environment — переменные доступные во всех stages
+    }
+
+    stages {
+        // stages — список этапов, выполняются по порядку
+
+        stage('Checkout') {
+            // stage — один этап с именем
+            steps {
+                checkout scm
+                // checkout scm — скачать код из Git репозитория
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .'
+                // sh — выполнить shell команду
+                // BUILD_NUMBER — встроенная переменная Jenkins (номер сборки)
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'docker run --rm ${IMAGE_NAME}:${BUILD_NUMBER} pytest'
+                // pytest — запустить тесты внутри контейнера
+            }
+        }
+
+        stage('Deploy') {
+            when {
+                branch 'main'
+                // when — условие: этот этап только для ветки main
+            }
+            steps {
+                sh 'docker compose up -d --build'
+            }
+        }
+    }
+
+    post {
+        // post — что делать после всех stages
+
+        success {
+            echo 'Деплой прошёл успешно!'
+        }
+        failure {
+            echo 'Что-то сломалось — проверь логи!'
+            // здесь можно добавить уведомление в Slack
+        }
+        always {
+            sh 'docker system prune -f'
+            // always — выполнить в любом случае (чистка)
+        }
+    }
+}</pre>
+      </div>
+
+      <h2>Ключевые понятия Jenkins</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Словарь Jenkins</span>
+        </div>
+        <pre>Job / Pipeline  — задача или набор задач для выполнения
+Build           — один запуск pipeline (номер сборки)
+Stage           — этап pipeline (Checkout, Build, Test, Deploy)
+Step            — конкретное действие внутри stage
+Agent / Node    — машина где выполняется pipeline
+Artifact        — результат сборки (JAR, Docker image, .zip)
+Workspace       — временная папка где лежит код во время сборки
+Credential      — секрет (пароль, токен) хранящийся в Jenkins
+Trigger         — условие запуска (push, schedule, другой job)
+
+# Credentials — безопасное хранение секретов:
+# Jenkins → Manage Jenkins → Credentials
+# Добавить токен/пароль с ID → использовать в Jenkinsfile:
+withCredentials([string(credentialsId: 'docker-token', variable: 'TOKEN')]) {
+    sh 'docker login -u user -p ${TOKEN}'
+}</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Pipeline не запустился после push</div>
+        <p>Причина: Jenkins не знает о репозитории или не настроен webhook.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — настроить webhook</div>
+        <pre># В GitHub репозитории:
+# Settings → Webhooks → Add webhook
+# Payload URL: http://jenkins-server:8080/github-webhook/
+# Content type: application/json
+# Events: Just the push event
+
+# В Jenkins job:
+# Configure → Build Triggers → GitHub hook trigger for GITScm polling</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> Jenkinsfile нужно коммитить в репозиторий вместе с кодом. Это "pipeline as code" — конфигурация CI/CD хранится там же где код, версионируется и можно сделать code review изменений в pipeline.
+      </div>
+    </section>
+
+    <!-- ОТКАЗОУСТОЙЧИВЫЕ КЛАСТЕРЫ -->
+    <section id="ha-clusters">
+      <h1>Отказоустойчивые кластеры</h1>
+      <p>Отказоустойчивость (High Availability, HA) — система продолжает работать даже если один из серверов упал. Достигается за счёт дублирования: нет ни одной точки отказа.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Один мост через реку — он упал, движение остановилось. Три моста через реку — один закрыт на ремонт, машины едут по двум другим. HA-кластер работает как три моста: один упал — остальные берут его нагрузку.
+      </div>
+
+      <h2>Ключевые понятия</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Словарь HA</span>
+        </div>
+        <pre>SPoF (Single Point of Failure)
+— единственная точка отказа. HA = устранить все SPoF.
+
+Replication (репликация)
+— копирование данных в реальном времени на несколько серверов.
+— Master → Slave. Пишем в Master, читаем с Slave.
+
+Failover (переключение при сбое)
+— автоматическое переключение на резервный сервер при падении основного.
+
+Quorum (кворум)
+— минимальное количество узлов для принятия решений.
+— Нечётное количество узлов: 3 или 5. При 2 кластер может "застыть".
+
+Load Balancer (балансировщик нагрузки)
+— распределяет запросы между несколькими серверами.
+— Пользователь всегда идёт в одну точку (VIP-адрес), не знает сколько серверов за ней.
+
+VIP (Virtual IP)
+— плавающий IP адрес. При падении одного сервера переходит на другой.
+— Пользователи и приложения всегда используют VIP, не знают о переключении.
+
+RTO (Recovery Time Objective) — максимальное время восстановления
+RPO (Recovery Point Objective) — максимальная потеря данных</pre>
+      </div>
+
+      <h2>Инструменты для HA</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Популярные инструменты HA</span>
+        </div>
+        <pre>HAProxy          — балансировщик нагрузки для TCP/HTTP
+                 — распределяет запросы, проверяет здоровье серверов
+                 — порт: 80/443 для входящих, 8080 статистика
+
+Keepalived       — управляет плавающим VIP адресом
+                 — если основной сервер упал → VIP переходит на резервный
+                 — работает через VRRP протокол
+
+Pacemaker +      — кластер ресурсов (сложные конфигурации)
+Corosync         — управляют любыми ресурсами: VIP, сервисы, диски
+                 — используется в PostgreSQL кластерах
+
+Patroni          — HA для PostgreSQL
+                 — автоматический failover мастера
+                 — интегрируется с etcd/consul/ZooKeeper для хранения состояния
+
+Kubernetes       — оркестратор контейнеров
+                 — встроенная HA: при падении пода запускает новый
+                 — несколько replica для каждого сервиса</pre>
+      </div>
+
+      <h2>HAProxy — пример конфигурации</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>/etc/haproxy/haproxy.cfg</span>
+        </div>
+        <pre>global
+    daemon                    # запускать как демон
+
+defaults
+    mode http                 # режим HTTP (или tcp для баз данных)
+    timeout connect 5s
+    timeout client  30s
+    timeout server  30s
+
+frontend web_front
+    # frontend — точка входа (принимает запросы)
+    bind *:80                 # слушать на порту 80
+    default_backend web_back  # передавать в этот backend
+
+backend web_back
+    # backend — список серверов куда распределять запросы
+    balance roundrobin        # алгоритм: по кругу
+    # balance leastconn       # или: наименее загруженному
+
+    option httpchk GET /health
+    # httpchk — проверять здоровье: GET /health каждые N секунд
+    # если сервер отвечает не 200 — исключается из балансировки
+
+    server web1 192.168.1.11:8000 check
+    server web2 192.168.1.12:8000 check
+    server web3 192.168.1.13:8000 check backup
+    # check — включить проверку здоровья
+    # backup — использовать только если все основные упали
+
+listen stats
+    bind *:8080
+    stats enable
+    stats uri /stats          # http://haproxy:8080/stats — дашборд</pre>
+      </div>
+
+      <h2>HA PostgreSQL с Patroni</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Архитектура Patroni кластера</span>
+        </div>
+        <pre># Минимальная конфигурация: 3 узла
+#
+# [etcd]  — хранит состояние кластера (кто лидер)
+#    ↓
+# [Patroni] на каждом узле — управляет PostgreSQL
+#    ↓
+# [PostgreSQL] — сама база данных
+#
+# Схема:
+# node1 (Master) ← пишем сюда
+#    ↓ репликация
+# node2 (Replica) ← читаем отсюда
+#    ↓ репликация
+# node3 (Replica) ← читаем отсюда
+#
+# Если node1 упал:
+# Patroni + etcd выбирают нового лидера (node2 или node3)
+# Failover занимает ~30 секунд
+
+# Проверить статус кластера:
+patronictl -c /etc/patroni.yml list
+# NAME     HOST           ROLE     STATE   TL  LAG IN MB
+# node1    192.168.1.11   Leader   running  1
+# node2    192.168.1.12   Replica  running  1   0
+# node3    192.168.1.13   Replica  running  1   0</pre>
+      </div>
+
+      <h2>Администрирование HA кластера</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Повседневные задачи администратора</span>
+        </div>
+        <pre># Плановое обслуживание — вывести узел без остановки сервиса:
+patronictl switchover   # переключить лидера на другой узел
+# или в HAProxy пометить сервер как maintenance:
+echo "disable server web_back/web1" | socat stdio /var/run/haproxy/admin.sock
+
+# Мониторинг репликации PostgreSQL:
+psql -c "SELECT * FROM pg_stat_replication;"
+# lag — отставание реплики от мастера в байтах
+
+# Проверить кворум etcd:
+etcdctl endpoint health
+etcdctl member list
+
+# Симуляция сбоя (для тестирования):
+systemctl stop patroni   # остановить на одном узле
+# кластер должен автоматически выбрать нового лидера
+
+# Логи переключения:
+journalctl -u patroni -n 100 --no-pager | grep -E "promoted|demoted|failover"</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Split-brain — два сервера думают что они лидеры</div>
+        <p>Причина: потеря связи между узлами. Оба считают себя мастером и принимают записи — данные расходятся.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — нечётное число узлов и кворум</div>
+        <pre># Минимум 3 узла — при потере 1 оставшиеся 2 составляют кворум
+# и могут решить кто лидер. При 2 узлах — кворума нет.
+
+# etcd/consul/ZooKeeper хранят "замок лидера":
+# только тот кто держит замок — лидер.
+# Если связь потеряна — замок истекает, другой узел берёт его.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> HA не защищает от всего. Она защищает от падения одного узла. Бэкапы — это другое: они защищают от потери данных (удалили таблицу, вирус, ошибка приложения). HA + регулярные бэкапы = надёжная система.
+      </div>
+    </section>
+
+    <!-- JIRA / CONFLUENCE -->
+    <section id="jira-confluence">
+      <h1>Jira и Confluence</h1>
+      <p>Jira — инструмент для управления задачами и проектами. Confluence — корпоративная wiki для документации. Оба продукта от Atlassian, тесно интегрированы друг с другом.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Jira — это список дел команды на доске (кто что делает, когда). Confluence — это папка с инструкциями, схемами и решениями (как это делать). Вместе: задача в Jira ссылается на инструкцию в Confluence.
+      </div>
+
+      <h2>Jira — управление задачами</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Словарь Jira</span>
+        </div>
+        <pre>Epic          — большая функциональность (3-6 месяцев работы)
+               Пример: "Внедрить мониторинг"
+
+Story         — пользовательская история (1-2 недели)
+               Пример: "Как DevOps, я хочу видеть алерты в Slack"
+
+Task          — конкретная техническая задача
+               Пример: "Настроить alertmanager webhook для Slack"
+
+Bug           — ошибка которую нужно исправить
+Sub-task      — подзадача Story или Task
+
+Sprint        — период работы, обычно 2 недели
+               В начале спринта берём задачи в работу, в конце — review
+Backlog       — список всех задач ещё не взятых в спринт
+Board         — канбан-доска: To Do → In Progress → Done
+
+Priority:
+  Blocker     — всё стоит, чинить прямо сейчас
+  Critical    — важно, сегодня
+  Major       — следующий спринт
+  Minor       — когда есть время
+  Trivial     — косметика</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Workflow задачи в Jira</span>
+        </div>
+        <pre>To Do           — задача создана, никто не взял
+In Progress     — кто-то работает прямо сейчас
+In Review       — сделано, ждёт проверки (code review, тестирование)
+Done            — готово и принято
+
+# DevOps часто видит такие задачи:
+#   "Настроить CI/CD для нового сервиса"
+#   "Увеличить ресурсы БД на prod"
+#   "Расследовать алерт: CPU > 90% ночью"
+#   "Написать runbook для деплоя"
+
+# Ключевые поля:
+Assignee        — кто делает
+Reporter        — кто создал
+Labels          — теги (infrastructure, monitoring, urgent)
+Components      — компонент системы (backend, database, network)
+Fix Version     — к какому релизу должно быть готово</pre>
+      </div>
+
+      <h2>Confluence — база знаний команды</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Что хранят в Confluence DevOps команды</span>
+        </div>
+        <pre>Runbook         — пошаговая инструкция для конкретной операции
+               "Как задеплоить на прод", "Как откатить релиз"
+               "Что делать при алерте disk full"
+
+Architecture    — схемы инфраструктуры, диаграммы
+               Как устроена сеть, кластеры, связи между сервисами
+
+Postmortem      — разбор инцидента после устранения
+               Что случилось, почему, что сделали, что изменим
+
+Onboarding      — инструкция для нового сотрудника
+               Как получить доступы, настроить среду, что читать
+
+Decision Log    — почему приняли то или иное техническое решение
+               "Выбрали PostgreSQL вместо MySQL потому что..."
+
+Changelog       — что изменилось в инфраструктуре и когда</pre>
+      </div>
+
+      <h2>Runbook — главный документ DevOps</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Пример структуры runbook</span>
+        </div>
+        <pre># Runbook: Деплой на production
+
+## Когда использовать
+При выпуске новой версии приложения в prod.
+
+## Предусловия
+- [ ] Прошли все тесты в CI
+- [ ] Есть бэкап базы данных
+- [ ] Команда уведомлена
+
+## Шаги
+
+### 1. Подключиться к серверу
+ssh deploy@prod-server-01
+
+### 2. Обновить код
+cd /app
+git pull origin main
+
+### 3. Запустить деплой
+docker compose pull
+docker compose up -d --no-deps backend
+
+### 4. Проверить здоровье
+curl http://localhost:8000/health
+# Ожидаемый ответ: {"status": "healthy"}
+
+### 5. Проверить логи
+docker logs backend --tail=50
+
+## Откат (если что-то пошло не так)
+git checkout HEAD~1
+docker compose up -d --no-deps backend
+
+## Контакты при проблемах
+On-call: @username в Slack канале #incidents</pre>
+      </div>
+
+      <h2>Интеграция Jira и Confluence</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Как связаны Jira и Confluence</span>
+        </div>
+        <pre># В Jira задаче можно прикрепить страницу Confluence:
+# → ссылка на runbook прямо из задачи
+# → при инциденте открыл задачу и сразу видишь что делать
+
+# В Confluence страница может показывать задачи из Jira:
+# Макрос Jira Issues — вставляет живой список задач на страницу
+# Postmortem в Confluence → ссылается на инцидент-задачу в Jira
+
+# Git коммит → Jira:
+# В сообщении коммита пиши номер задачи:
+git commit -m "PROJ-123: настроить nginx для нового сервиса"
+# GitHub/GitLab автоматически свяжет коммит с задачей PROJ-123
+
+# Jira + GitHub Actions:
+# После успешного деплоя автоматически закрывать задачу в Jira
+# через Jira API или готовые actions</pre>
+      </div>
+
+      <div class="note">
+        <strong>Практика:</strong> На собеседовании часто спрашивают как ты организуешь работу. Хороший ответ: "Задача создаётся в Jira с описанием и acceptance criteria. Во время работы пишу в комментарии что делаю. Runbook или изменения документирую в Confluence. В коммите ссылаюсь на номер задачи. После деплоя задача переходит в Done."
       </div>
     </section>
 

@@ -19,5 +19,8 @@ CREATE TABLE IF NOT EXISTS topics (
       ('Grafana',     15, 'Запуск, первый дашборд'),
       ('Kubernetes',   0, ''),
       ('Zabbix',       0, ''),
-      ('GitHub Actions', 40, 'Первый workflow, GitHub 
-  Pages');
+      ('GitHub Actions', 40, 'Первый workflow, GitHub Pages'),
+      ('Ansible',      0, ''),
+      ('Jenkins',      0, ''),
+      ('Отказоустойчивые кластеры', 0, ''),
+      ('Jira / Confluence', 0, '');
