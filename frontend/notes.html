@@ -699,6 +699,65 @@ span, a, code, strong { display: inline; }
       <div class="note">
         <strong>Запомни:</strong> каждый HTML тег нужно закрыть — <code>&lt;div&gt;</code> закрывается <code>&lt;/div&gt;</code>. Исключения: <code>&lt;meta&gt;</code>, <code>&lt;input&gt;</code>, <code>&lt;br&gt;</code> — самозакрывающиеся теги.
       </div>
+
+      <h2>IntersectionObserver — отслеживание видимости</h2>
+      <p>Браузерный API который следит за тем, какой элемент сейчас виден на экране. Мы используем его для scroll spy — автоматического переключения активного пункта в меню при прокрутке.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">JAVASCRIPT</span>
+          <span>Scroll spy в notes.html</span>
+        </div>
+        <pre>const sections = document.querySelectorAll('section');
+// querySelectorAll — найти все элементы на странице по селектору
+// 'section' — все теги &lt;section&gt;
+
+const observer = new IntersectionObserver(entries => {
+// IntersectionObserver — создать наблюдателя
+// entries — список элементов которые изменили видимость
+
+  entries.forEach(entry => {
+  // forEach — пройти по каждому изменению
+
+    if (entry.isIntersecting) {
+    // isIntersecting — элемент сейчас виден в области просмотра
+
+      const id = entry.target.id;
+      // target — сам элемент, id — его атрибут id (например "git")
+
+      links.forEach(l => l.classList.remove('active'));
+      // убрать выделение у всех ссылок
+
+      const active = document.querySelector(`.sidebar a[href="#${id}"]`);
+      // найти ссылку в меню которая ведёт на этот раздел
+      // [href="#git"] — ссылка с атрибутом href равным "#git"
+
+      if (active) active.classList.add('active');
+      // добавить выделение найденной ссылке
+    }
+  });
+
+}, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
+// rootMargin — сжимаем область срабатывания:
+//   '0px 0px -70% 0px' = сверху 0, справа 0, снизу -70%, слева 0
+//   срабатывает когда верх секции входит в верхние 30% экрана
+// threshold: 0 — срабатывать как только хоть пиксель виден
+
+sections.forEach(section => observer.observe(section));
+// observe — начать наблюдать за каждой секцией</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Scroll spy не переключается на длинных разделах</div>
+        <p>Причина: <code>threshold: 0.3</code> требует что 30% элемента видно. Для длинных разделов это может не выполняться никогда.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — использовать rootMargin вместо threshold</div>
+        <pre>{ rootMargin: '0px 0px -70% 0px', threshold: 0 }
+// threshold: 0 — срабатывает при любой видимости
+// rootMargin -70% снизу — активируется когда верх секции
+// попадает в верхние 30% экрана</pre>
+      </div>
     </section>
 
     <!-- GITHUB ACTIONS -->
