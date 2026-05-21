@@ -150,36 +150,54 @@
       <p>Загрузка...</p>
     </div>
 
-    <script>
-      fetch('http://localhost:8000/topics')
+   <script>
+    const API = 'http://localhost:8000';
+  
+    function loadTopics() {
+      fetch(`${API}/topics`)
         .then(r => r.json())
         .then(topics => {
-          const container =
-  document.getElementById('topics-container');
+          const container = document.getElementById('topics-container');
           container.innerHTML = topics.map(t => `
-            <div style="margin: 0.8rem 0">
-              <div style="display:flex; 
-  justify-content:space-between; margin-bottom:4px">
+            <div style="margin: 1rem 0">
+              <div style="display:flex; justify-content:space-between; 
+  margin-bottom:4px">
                 <span>${t.name}</span>
-                <span 
-  style="color:#58a6ff">${t.progress}%</span>
+                <span style="color:#58a6ff">${t.progress}%</span>
               </div>
-              <div style="background:#21262d; 
-  border-radius:4px; height:8px">
-                <div style="background:#238636; 
-  width:${t.progress}%; height:8px; 
-  border-radius:4px"></div>
+              <div style="background:#21262d; border-radius:4px; height:8px;
+   margin-bottom:6px">
+                <div style="background:#238636; width:${t.progress}%; 
+  height:8px; border-radius:4px"></div>
               </div>
-              <small 
-  style="color:#8b949e">${t.notes}</small>
+              <div style="display:flex; gap:8px; align-items:center">
+                <input
+                  type="range" min="0" max="100" value="${t.progress}"
+                  style="flex:1; cursor:pointer"
+                  
+  oninput="this.nextElementSibling.textContent=this.value+'%'"
+                  onchange="updateTopic(${t.id}, this.value)"
+                >
+                <span style="color:#8b949e; 
+  min-width:35px">${t.progress}%</span>
+              </div>
+              <small style="color:#8b949e">${t.notes}</small>
             </div>
           `).join('');
         })
         .catch(() => {
           document.getElementById('topics-container').innerHTML =
-            '<p style="color:#8b949e">API недоступен — запусти docker compose up</p>';
+            '<p style="color:#8b949e">API недоступен — запусти docker-compose up</p>';
         });
-    </script>
+    }
 
+    function updateTopic(id, progress) {
+      fetch(`${API}/topics/${id}?progress=${progress}`, { method: 'PUT' })
+        .then(r => r.json())
+        .catch(() => alert('Ошибка обновления'));
+ }
+
+    loadTopics();
+  </script>
   </body>
   </html>
