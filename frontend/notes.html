@@ -383,6 +383,422 @@ docker compose restart db    # перезапустить конкретный �
       </div>
     </section>
 
+    <!-- FASTAPI -->
+    <section id="fastapi">
+      <h1>FastAPI — бэкенд на Python</h1>
+      <p>FastAPI — фреймворк для создания API на Python. Быстрый, современный, автоматически генерирует документацию.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> API — это официант в ресторане. Ты (фронтенд) говоришь официанту что хочешь, он идёт на кухню (база данных) и приносит результат. Ты не знаешь как устроена кухня — тебе важен только результат.
+      </div>
+
+      <h2>Структура приложения</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>backend/app/main.py</span>
+        </div>
+        <pre>from fastapi import FastAPI, HTTPException
+# import — подключить библиотеку
+# FastAPI — основной класс приложения
+# HTTPException — возвращать ошибки с кодом (400, 500...)
+
+from fastapi.middleware.cors import CORSMiddleware
+# CORS — разрешить фронтенду обращаться к API с другого адреса
+
+import psycopg2
+# драйвер для подключения к PostgreSQL
+
+import os
+# встроенная библиотека Python для работы с переменными окружения
+
+app = FastAPI(title="DevOps Portfolio API")
+# создаём приложение
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # * = разрешить всем сайтам
+    allow_methods=["*"],
+    allow_headers=["*"],
+)</pre>
+      </div>
+
+      <h2>Эндпоинты</h2>
+      <p>Эндпоинт — адрес на который можно отправить запрос. Каждый эндпоинт делает одно конкретное действие.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>GET запросы — получить данные</span>
+        </div>
+        <pre>@app.get("/")
+# @app.get — декоратор: при GET запросе на "/" вызвать функцию ниже
+def root():
+    return {"status": "ok"}
+# return — вернуть JSON ответ
+
+@app.get("/topics")
+def get_topics():
+    conn = get_db()          # открыть соединение с базой
+    cur = conn.cursor()      # инструмент для SQL запросов
+    cur.execute("SELECT id, name, progress, notes FROM topics")
+    rows = cur.fetchall()    # получить все строки
+    cur.close()
+    conn.close()             # закрыть соединение
+    return [
+        {"id": r[0], "name": r[1], "progress": r[2], "notes": r[3]}
+        for r in rows        # list comprehension — создать список из строк
+    ]</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>PUT запрос — обновить данные</span>
+        </div>
+        <pre>@app.put("/topics/{topic_id}")
+# {topic_id} — переменная в URL, например /topics/3
+def update_topic(topic_id: int, progress: int, notes: str = ""):
+# topic_id: int — FastAPI проверит что это число
+# notes: str = "" — необязательный параметр, по умолчанию пустая строка
+
+    if progress < 0 or progress > 100:
+        raise HTTPException(status_code=400, detail="Progress must be 0-100")
+    # 400 — код ошибки "неправильный запрос"
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE topics SET progress=%s, notes=%s WHERE id=%s",
+        (progress, notes, topic_id)
+    )
+    # %s — заполнитель для значений (защита от SQL инъекций)
+    conn.commit()   # подтвердить изменения — без этого не сохранится
+    cur.close()
+    conn.close()
+    return {"status": "updated"}</pre>
+      </div>
+
+      <h2>HTTP методы</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Проверка эндпоинтов через curl</span>
+        </div>
+        <pre>curl http://localhost:8000/topics
+# GET запрос — получить все темы
+
+curl -X PUT "http://localhost:8000/topics/1?progress=90&notes=done"
+# PUT запрос — обновить тему с id=1
+# -X PUT — указать метод
+# ?progress=90 — параметры запроса</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> GET — получить данные, PUT — обновить существующие, POST — создать новые, DELETE — удалить. Это стандарт REST API.
+      </div>
+    </section>
+
+    <!-- SQL -->
+    <section id="sql">
+      <h1>SQL и PostgreSQL</h1>
+      <p>SQL — язык запросов к базе данных. PostgreSQL — одна из самых популярных реляционных баз данных.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> База данных — это Excel таблица. SQL — это команды для работы с ней: добавить строку, найти строку, изменить, удалить.
+      </div>
+
+      <h2>Миграция — создание таблицы</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>db/001_create_topics.sql</span>
+        </div>
+        <pre>CREATE TABLE IF NOT EXISTS topics (
+-- CREATE TABLE — создать таблицу
+-- IF NOT EXISTS — не падать с ошибкой если таблица уже есть
+
+    id         SERIAL PRIMARY KEY,
+    -- SERIAL — автоматически увеличивается (1, 2, 3...)
+    -- PRIMARY KEY — уникальный идентификатор строки
+
+    name       VARCHAR(100) NOT NULL,
+    -- VARCHAR(100) — текст до 100 символов
+    -- NOT NULL — обязательное поле, не может быть пустым
+
+    progress   INTEGER DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
+    -- INTEGER — целое число
+    -- DEFAULT 0 — по умолчанию 0
+    -- CHECK — ограничение: только от 0 до 100
+
+    notes      TEXT,
+    -- TEXT — текст любой длины, может быть пустым
+
+    updated_at TIMESTAMP DEFAULT NOW()
+    -- TIMESTAMP — дата и время
+    -- NOW() — автоматически ставит текущее время
+);
+
+INSERT INTO topics (name, progress, notes) VALUES
+-- INSERT INTO — добавить строки в таблицу
+    ('Docker',         80, 'Образы, контейнеры, docker-compose'),
+    ('Git',            70, 'add, commit, push, ветки'),
+    ('GitHub Actions', 40, 'Первый workflow, GitHub Pages');</pre>
+      </div>
+
+      <h2>Основные SQL команды</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Базовые операции</span>
+        </div>
+        <pre>SELECT * FROM topics;
+-- SELECT — получить данные, * — все колонки
+
+SELECT id, name, progress FROM topics WHERE progress > 50;
+-- WHERE — условие фильтрации
+
+UPDATE topics SET progress = 90 WHERE id = 1;
+-- UPDATE — обновить строку
+
+DELETE FROM topics WHERE id = 5;
+-- DELETE — удалить строку (осторожно без WHERE удалит всё!)
+
+ORDER BY id ASC   -- сортировать по id по возрастанию
+ORDER BY id DESC  -- по убыванию</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Миграция не выполнилась при запуске</div>
+        <pre>ls: cannot open directory '/docker-entrypoint-initdb.d/': Permission denied</pre>
+        <p>Причина: PostgreSQL выполняет SQL файлы из этой папки только при первом запуске — если данные уже существуют, миграция пропускается.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — удалить старые данные и перезапустить</div>
+        <pre>docker compose down
+docker volume prune    # удалить старые данные БД
+docker compose up -d   # запустить заново — миграция выполнится</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> <code>%s</code> в Python запросах — это не строка формата, а защита от SQL инъекций. Всегда передавай значения вторым аргументом в <code>cur.execute()</code>, никогда не вставляй их напрямую в строку запроса.
+      </div>
+    </section>
+
+    <!-- HTML и CSS -->
+    <section id="html-css">
+      <h1>HTML и CSS</h1>
+      <p>HTML описывает структуру страницы, CSS — её внешний вид. Браузер читает оба файла и рисует то что видит пользователь.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> HTML — это скелет здания (стены, окна, двери). CSS — это дизайн интерьера (цвет стен, мебель, освещение). Без HTML нечего оформлять, без CSS всё выглядит как текст на белом фоне.
+      </div>
+
+      <h2>Структура HTML файла</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HTML</span>
+          <span>Базовая структура любой страницы</span>
+        </div>
+        <pre>&lt;!DOCTYPE html&gt;
+&lt;!-- DOCTYPE — говорим браузеру что это HTML документ --&gt;
+
+&lt;html lang="ru"&gt;
+&lt;!-- html — корневой элемент, lang — язык страницы --&gt;
+
+&lt;head&gt;
+  &lt;!-- head — служебная информация, не видна пользователю --&gt;
+  &lt;meta charset="UTF-8"&gt;
+  &lt;!-- charset — кодировка, UTF-8 поддерживает русские буквы --&gt;
+
+  &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+  &lt;!-- viewport — страница нормально выглядит на телефоне --&gt;
+
+  &lt;title&gt;Название вкладки&lt;/title&gt;
+  &lt;style&gt; ... &lt;/style&gt;
+  &lt;!-- style — CSS стили внутри HTML файла --&gt;
+&lt;/head&gt;
+
+&lt;body&gt;
+  &lt;!-- body — всё что видит пользователь --&gt;
+  &lt;h1&gt;Заголовок&lt;/h1&gt;
+  &lt;p&gt;Параграф текста&lt;/p&gt;
+  &lt;div&gt;Блок-контейнер&lt;/div&gt;
+  &lt;span&gt;Строчный элемент&lt;/span&gt;
+  &lt;a href="page.html"&gt;Ссылка&lt;/a&gt;
+&lt;/body&gt;
+&lt;/html&gt;</pre>
+      </div>
+
+      <h2>Основные CSS свойства</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CSS</span>
+          <span>Цвет, шрифт, отступы</span>
+        </div>
+        <pre>body {
+  background: #0d1117;   /* цвет фона */
+  color: #e6edf3;        /* цвет текста */
+  font-family: sans-serif; /* шрифт */
+  padding: 2rem;         /* отступ внутри элемента */
+  margin: 0 auto;        /* центрировать по горизонтали */
+  max-width: 900px;      /* максимальная ширина */
+}
+
+h1 {
+  font-size: 2rem;       /* размер шрифта */
+  font-weight: bold;     /* жирный */
+  border-bottom: 1px solid #30363d; /* линия снизу */
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CSS</span>
+          <span>Flexbox — расположение элементов</span>
+        </div>
+        <pre">.container {
+  display: flex;                  /* включить flexbox */
+  justify-content: space-between; /* элементы по краям */
+  align-items: center;            /* выровнять по центру вертикально */
+  gap: 1rem;                      /* расстояние между элементами */
+}
+
+/* sidebar + content — два блока в строку */
+body {
+  display: flex;    /* sidebar слева, content справа */
+  height: 100vh;    /* на весь экран (vh = viewport height) */
+}
+.sidebar { width: 220px; flex-shrink: 0; }
+.content  { flex: 1; }  /* занять всё оставшееся место */</pre>
+      </div>
+
+      <h2>Типы блоков</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CSS</span>
+          <span>display: block vs inline</span>
+        </div>
+        <pre>/* block — занимает всю ширину строки, следующий элемент на новой строке */
+div, h1, h2, p, pre { display: block; }
+
+/* inline — занимает только место текста, элементы идут в строку */
+span, a, code, strong { display: inline; }
+
+/* inline-block — как inline но можно задать ширину и высоту */
+.badge { display: inline-block; padding: 0.2rem 0.7rem; }</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> каждый HTML тег нужно закрыть — <code>&lt;div&gt;</code> закрывается <code>&lt;/div&gt;</code>. Исключения: <code>&lt;meta&gt;</code>, <code>&lt;input&gt;</code>, <code>&lt;br&gt;</code> — самозакрывающиеся теги.
+      </div>
+    </section>
+
+    <!-- GITHUB ACTIONS -->
+    <section id="github-actions">
+      <h1>GitHub Actions — автоматизация</h1>
+      <p>GitHub Actions выполняет задачи автоматически при определённых событиях — например при каждом git push. Мы используем его для автоматической публикации сайта.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> GitHub Actions — это помощник которому ты дал инструкцию заранее. Ты отправил файлы (git push) — помощник автоматически опубликовал сайт. Ты занимаешься своим делом, он своим.
+      </div>
+
+      <h2>Структура workflow файла</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>.github/workflows/pages.yml</span>
+        </div>
+        <pre>name: Deploy to GitHub Pages
+# название — только для читаемости
+
+on:
+  push:
+    branches:
+      - main
+# когда запускать — при каждом push в ветку main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+# разрешения — что этому скрипту разрешено делать
+# pages: write — разрешить публикацию на GitHub Pages
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # runs-on — на какой виртуальной машине выполнять
+    # ubuntu-latest — GitHub предоставляет бесплатно
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # environment — окружение деплоя, сюда пишется URL сайта
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # скачать репозиторий на виртуальную машину
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        with:
+          enablement: true
+        # настроить GitHub Pages
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./frontend
+        # упаковать папку frontend/ для публикации
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        # опубликовать на GitHub Pages</pre>
+      </div>
+
+      <h2>Что происходит после git push</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Полный цикл деплоя</span>
+        </div>
+        <pre>1. git push                          # ты отправляешь изменения
+2. GitHub читает pages.yml           # находит инструкцию
+3. Запускает виртуальную машину Ubuntu
+4. actions/checkout — скачивает репозиторий
+5. actions/configure-pages — настраивает Pages
+6. actions/upload-pages-artifact — упаковывает frontend/
+7. actions/deploy-pages — публикует на сайт
+8. Сайт обновлён за 1-2 минуты</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">refusing to allow — нет прав на workflow</div>
+        <pre>refusing to allow a Personal Access Token to update workflow</pre>
+        <p>Причина: токен не имеет галочки workflow в правах.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение</div>
+        <p>GitHub → Settings → Developer settings → Personal access tokens → найди токен → добавь галочку <code>workflow</code> → сохрани новый токен → обнови в системе через <code>GIT_TERMINAL_PROMPT=1 GIT_ASKPASS="" git push</code></p>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> <code>uses: actions/checkout@v4</code> — это готовые блоки от GitHub, как кубики Lego. Не пишем всё с нуля — берём готовое и собираем pipeline из блоков.
+      </div>
+    </section>
+
   </div>
 
   <script>
@@ -406,7 +822,7 @@ docker compose restart db    # перезапустить конкретный �
           if (active) active.classList.add('active');
         }
       });
-    }, { threshold: 0.3 });
+    }, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
 
     sections.forEach(section => observer.observe(section));
   </script>
