@@ -693,6 +693,136 @@ EXPLAIN ANALYZE SELECT * FROM topics WHERE progress > 95;
         <strong>Запомни:</strong> Индекс — как оглавление в книге. Без него PostgreSQL читает все строки подряд (Seq Scan). С индексом — сразу находит нужные строки. Но на маленьких таблицах (до тысячи строк) PostgreSQL сам выберет Seq Scan — это быстрее чем лезть в индекс. PRIMARY KEY создаёт индекс автоматически.
       </div>
 
+      <h2>JOIN — объединение таблиц</h2>
+      <p>JOIN объединяет строки из двух таблиц по связанной колонке. Без JOIN нельзя работать с реальными базами где данные разнесены по нескольким таблицам.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Виды JOIN</span>
+        </div>
+        <pre>-- INNER JOIN — только совпадающие строки в обеих таблицах:
+SELECT users.name, topics.name, progress_log.new_progress
+FROM progress_log
+INNER JOIN users  ON progress_log.user_id = users.id
+INNER JOIN topics ON progress_log.topic_id = topics.id;
+
+-- LEFT JOIN — все строки левой таблицы + совпадения из правой:
+SELECT users.name, progress_log.new_progress
+FROM users
+LEFT JOIN progress_log ON users.id = progress_log.user_id;
+-- пользователи без записей тоже попадут в результат (NULL вместо данных)
+
+-- RIGHT JOIN — все строки правой таблицы + совпадения из левой
+-- FULL JOIN  — все строки из обеих таблиц</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> INNER JOIN — самый частый. LEFT JOIN используют когда нужны все записи из главной таблицы даже если связанных данных нет. Результат JOIN — новая временная таблица из объединённых колонок обеих таблиц.
+      </div>
+
+      <h2>GROUP BY и HAVING — группировка</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Агрегатные функции и группировка</span>
+        </div>
+        <pre>-- Агрегатные функции:
+SELECT COUNT(*)        FROM topics;  -- количество строк
+SELECT AVG(progress)   FROM topics;  -- среднее значение
+SELECT SUM(progress)   FROM topics;  -- сумма
+SELECT MAX(progress)   FROM topics;  -- максимум
+SELECT MIN(progress)   FROM topics;  -- минимум
+
+-- GROUP BY — считать агрегат для каждой группы отдельно:
+SELECT
+  CASE
+    WHEN progress = 0  THEN 'не начато'
+    WHEN progress < 50 THEN 'в процессе'
+    ELSE                    'почти готово'
+  END AS статус,
+  COUNT(*) AS количество
+FROM topics
+GROUP BY статус;
+
+-- HAVING — фильтр ПОСЛЕ группировки (WHERE нельзя использовать с агрегатами):
+SELECT name, AVG(progress)
+FROM topics
+GROUP BY name
+HAVING AVG(progress) > 30;
+-- WHERE — фильтрует строки ДО группировки
+-- HAVING — фильтрует группы ПОСЛЕ GROUP BY</pre>
+      </div>
+
+      <h2>NULL — ловушки</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Правильная работа с NULL</span>
+        </div>
+        <pre>-- НЕПРАВИЛЬНО — всегда вернёт 0 строк:
+SELECT * FROM topics WHERE notes = NULL;
+
+-- ПРАВИЛЬНО:
+SELECT * FROM topics WHERE notes IS NULL;
+SELECT * FROM topics WHERE notes IS NOT NULL;
+
+-- Ловушка с != :
+WHERE notes != 'test'
+-- строки где notes = NULL тоже НЕ попадут в результат!
+
+-- Правильно:
+WHERE notes != 'test' OR notes IS NULL;
+
+-- COALESCE — заменить NULL на значение по умолчанию:
+SELECT name, COALESCE(notes, 'нет заметок') FROM topics;</pre>
+      </div>
+
+      <h2>ALTER TABLE — изменение структуры</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Изменение таблицы</span>
+        </div>
+        <pre>-- Добавить колонку:
+ALTER TABLE topics ADD COLUMN category VARCHAR(50) DEFAULT 'general';
+-- DEFAULT — существующие строки получат это значение автоматически
+
+-- Удалить колонку:
+ALTER TABLE topics DROP COLUMN category;
+
+-- Переименовать колонку:
+ALTER TABLE topics RENAME COLUMN notes TO description;
+
+-- Изменить тип данных:
+ALTER TABLE topics ALTER COLUMN progress TYPE BIGINT;</pre>
+      </div>
+
+      <h2>DELETE vs TRUNCATE</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Удаление данных</span>
+        </div>
+        <pre>DELETE FROM topics WHERE id = 5;
+-- удалить конкретную строку — всегда используй WHERE!
+
+DELETE FROM topics;
+-- удалить ВСЕ строки — медленно, можно откатить через ROLLBACK
+-- счётчик SERIAL не сбрасывается
+
+TRUNCATE TABLE topics;
+-- очистить таблицу мгновенно — быстро на миллионах строк
+-- сбрасывает счётчик SERIAL обратно в 1
+-- нельзя откатить
+
+-- Правило: DELETE для конкретных строк, TRUNCATE для полной очистки таблицы</pre>
+      </div>
+
       <div class="error-block">
         <div class="title">Миграция 002 не выполнилась на существующей базе</div>
         <p>PostgreSQL выполняет SQL файлы из <code>docker-entrypoint-initdb.d</code> только при первом старте. Если база уже существует — новые файлы игнорируются.</p>
@@ -2347,6 +2477,102 @@ watch     — повторять команду каждые N секунд
 dig / nslookup — проверка DNS
            dig google.com
            nslookup google.com</pre>
+      </div>
+
+      <h2>PostgreSQL — администрирование</h2>
+      <p>DevOps должен уметь подключиться к базе, посмотреть что происходит, найти медленные запросы и не сломать продакшн.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Полезные команды psql</span>
+        </div>
+        <pre>\l          — список всех баз данных
+\c dbname   — подключиться к базе
+\dt         — список таблиц
+\d topics   — структура таблицы (колонки, типы, индексы)
+\di         — список индексов
+\du         — список пользователей
+\x          — расширенный вывод (удобно для широких таблиц)
+\timing     — показывать время выполнения каждого запроса
+\q          — выйти</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Диагностика производительности</span>
+        </div>
+        <pre>-- Найти медленные запросы (нужен модуль pg_stat_statements):
+SELECT query, calls, mean_exec_time, total_exec_time
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+
+-- Активные подключения и что они делают:
+SELECT pid, usename, application_name, state, query
+FROM pg_stat_activity
+WHERE state != 'idle';
+
+-- Размер таблиц:
+SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
+FROM pg_stat_user_tables
+ORDER BY pg_total_relation_size(relid) DESC;
+
+-- Размер базы данных:
+SELECT pg_size_pretty(pg_database_size('portfolio'));
+
+-- Статистика использования индексов:
+SELECT indexrelname, idx_scan, idx_tup_read
+FROM pg_stat_user_indexes
+ORDER BY idx_scan;</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Управление пользователями и правами</span>
+        </div>
+        <pre>-- Создать пользователя:
+CREATE USER readonly WITH PASSWORD 'secret';
+
+-- Дать права только на чтение:
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly;
+
+-- Дать все права на базу:
+GRANT ALL PRIVILEGES ON DATABASE portfolio TO devops;
+
+-- Отозвать права:
+REVOKE SELECT ON topics FROM readonly;
+
+-- Посмотреть права на таблицу:
+\dp topics</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Бэкап и восстановление PostgreSQL</span>
+        </div>
+        <pre># Сделать бэкап базы:
+pg_dump -U devops -d portfolio > backup.sql
+# или в сжатом формате:
+pg_dump -U devops -d portfolio -Fc > backup.dump
+
+# Восстановить из бэкапа:
+psql -U devops -d portfolio < backup.sql
+# или из сжатого:
+pg_restore -U devops -d portfolio backup.dump
+
+# Бэкап через Docker:
+docker exec devops-portfolio-db-1 pg_dump -U devops portfolio > backup.sql
+
+# Расписание бэкапов через cron (каждый день в 3:00):
+0 3 * * * docker exec devops-portfolio-db-1 pg_dump -U devops portfolio > /backups/$(date +%Y%m%d).sql</pre>
+      </div>
+
+      <div class="note">
+        <strong>Золотое правило DevOps и PostgreSQL:</strong> EXPLAIN ANALYZE перед любым изменением схемы на продакшн. Добавил индекс → проверь что запросы стали быстрее. Удалил индекс → убедись что ничего не замедлилось. Никогда не делай миграции без бэкапа.
       </div>
 
     </section>
