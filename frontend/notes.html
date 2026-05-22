@@ -593,6 +593,119 @@ docker compose up -d   # запустить заново — миграция в
       <div class="note">
         <strong>Запомни:</strong> <code>%s</code> в Python запросах — это не строка формата, а защита от SQL инъекций. Всегда передавай значения вторым аргументом в <code>cur.execute()</code>, никогда не вставляй их напрямую в строку запроса.
       </div>
+
+      <h2>EXPLAIN ANALYZE — анализ запросов</h2>
+      <p>Команда которая показывает как PostgreSQL выполняет запрос изнутри. Главный инструмент для поиска проблем с производительностью.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Синтаксис</span>
+        </div>
+        <pre>EXPLAIN ANALYZE SELECT * FROM topics WHERE progress > 20;
+
+-- EXPLAIN      — показать план без выполнения
+-- EXPLAIN ANALYZE — выполнить запрос и показать реальное время</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Как читать вывод</span>
+        </div>
+        <pre>Seq Scan on topics  (cost=0.00..13.38 rows=90 width=266)
+                    (actual time=0.007..0.009 rows=6 loops=1)
+  Filter: (progress > 20)
+  Rows Removed by Filter: 4
+Planning Time: 0.052 ms
+Execution Time: 0.033 ms
+
+Seq Scan        — читает ВСЕ строки подряд (плохо на больших таблицах)
+Index Scan      — использует индекс (быстро на больших таблицах)
+Bitmap Heap Scan — комбинированный метод через индекс
+
+cost=0.00..13.38 — предполагаемая стоимость (условные единицы)
+rows=90          — PostgreSQL ПРЕДПОЛАГАЛ найти 90 строк
+actual rows=6    — реально нашёл 6 (статистика была устаревшей)
+Execution Time   — реальное время выполнения в миллисекундах</pre>
+      </div>
+
+      <h2>Индексы — ускорение поиска</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Создание и удаление индекса</span>
+        </div>
+        <pre>-- Создать индекс:
+CREATE INDEX idx_topics_progress ON topics(progress);
+-- idx_topics_progress — название (придумываем сами, обычно idx_таблица_колонка)
+-- topics(progress)    — таблица и колонка по которой индексируем
+
+-- Посмотреть все индексы:
+\d topics
+
+-- Удалить индекс:
+DROP INDEX idx_topics_progress;</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Когда индекс помогает, а когда нет</span>
+        </div>
+        <pre>-- НЕ использует индекс (80% строк — выгоднее Seq Scan):
+EXPLAIN ANALYZE SELECT * FROM topics WHERE progress > 20;
+-- Seq Scan   Execution Time: 0.936 ms
+
+-- Использует индекс (5% строк — индекс ускоряет):
+EXPLAIN ANALYZE SELECT * FROM topics WHERE progress > 95;
+-- Bitmap Index Scan   Execution Time: 0.219 ms
+
+-- Вывод: индекс работает когда запрос ИЗБИРАТЕЛЬНЫЙ
+-- возвращает малую часть строк (< 10-15% таблицы)
+-- На миллионах строк разница: секунды vs миллисекунды</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Подключиться к PostgreSQL в контейнере</span>
+        </div>
+        <pre>docker exec -it devops-portfolio-db-1 psql -U devops -d portfolio
+-- exec    — выполнить команду внутри контейнера
+-- -it     — интерактивный режим с терминалом
+-- psql    — клиент PostgreSQL
+-- -U      — пользователь
+-- -d      — база данных
+
+-- Выйти из psql:
+\q
+
+-- Посмотреть все таблицы:
+\dt
+
+-- Структура таблицы:
+\d topics</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> Индекс — как оглавление в книге. Без него PostgreSQL читает все строки подряд (Seq Scan). С индексом — сразу находит нужные строки. Но на маленьких таблицах (до тысячи строк) PostgreSQL сам выберет Seq Scan — это быстрее чем лезть в индекс. PRIMARY KEY создаёт индекс автоматически.
+      </div>
+
+      <div class="error-block">
+        <div class="title">Миграция 002 не выполнилась на существующей базе</div>
+        <p>PostgreSQL выполняет SQL файлы из <code>docker-entrypoint-initdb.d</code> только при первом старте. Если база уже существует — новые файлы игнорируются.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — добавить данные вручную через psql</div>
+        <pre>docker exec -it devops-portfolio-db-1 psql -U devops -d portfolio
+
+INSERT INTO topics (name, progress, notes) VALUES
+  ('Ansible', 0, ''),
+  ('Jenkins', 0, '');
+-- INSERT 0 2 — означает: успешно, добавлено 2 строки</pre>
+      </div>
     </section>
 
     <!-- HTML и CSS -->
