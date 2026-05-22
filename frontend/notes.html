@@ -2575,6 +2575,32 @@ docker exec devops-portfolio-db-1 pg_dump -U devops portfolio > backup.sql
         <strong>Золотое правило DevOps и PostgreSQL:</strong> EXPLAIN ANALYZE перед любым изменением схемы на продакшн. Добавил индекс → проверь что запросы стали быстрее. Удалил индекс → убедись что ничего не замедлилось. Никогда не делай миграции без бэкапа.
       </div>
 
+      <h2>NULL — заражает всё</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Как NULL ведёт себя в выражениях</span>
+        </div>
+        <pre>SELECT 1 + NULL;           -- результат: NULL (не 1, не ошибка — именно NULL)
+SELECT 'text' || NULL;     -- результат: NULL
+SELECT COUNT(notes) FROM topics;  -- не считает строки где notes = NULL
+SELECT COUNT(*) FROM topics;      -- считает ВСЕ строки включая NULL
+
+-- NULL "заражает" всё к чему прикасается
+-- Любая операция с NULL = NULL
+
+-- COALESCE — спасение от NULL:
+SELECT name, COALESCE(notes, 'нет заметок') FROM topics;
+-- если notes = NULL → вернёт 'нет заметок'
+-- если notes = 'текст' → вернёт 'текст'
+
+-- NULLIF — обратное: вернуть NULL если значение равно чему-то:
+SELECT NULLIF(progress, 0) FROM topics;
+-- если progress = 0 → вернёт NULL
+-- удобно чтобы не делить на ноль
+      </div>
+
     </section>
 
   </div>
