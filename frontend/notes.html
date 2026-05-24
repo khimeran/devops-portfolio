@@ -1105,6 +1105,147 @@ jobs:
       <div class="note">
         <strong>Запомни:</strong> <code>uses: actions/checkout@v4</code> — это готовые блоки от GitHub, как кубики Lego. Не пишем всё с нуля — берём готовое и собираем pipeline из блоков.
       </div>
+
+      <h2>CI/CD pipeline — три джоба</h2>
+      <p>Один workflow может содержать несколько джобов. Они могут работать параллельно или по очереди. Мы построили цепочку: test → build → deploy.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Это как сборочный конвейер на заводе. Сначала ОТК проверяет деталь (test). Параллельно другой рабочий красит корпус (build). Только если оба справились — деталь идёт в упаковку (deploy). Один брак — вся линия стоит.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>.github/workflows/pages.yml — три джоба</span>
+        </div>
+        <pre>jobs:
+
+  test:                          # джоб 1 — запускаем тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest httpx
+      - run: |
+          cd backend
+          pytest tests/ -v         # -v = verbose, показывает каждый тест
+
+  build:                         # джоб 2 — билдим Docker образ
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t portfolio-backend ./backend
+
+  deploy:                        # джоб 3 — деплоим на GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [test, build]         # ← КЛЮЧЕВОЕ: ждать test И build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v4
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./frontend
+      - id: deployment
+        uses: actions/deploy-pages@v4</pre>
+      </div>
+
+      <h2>needs: — зависимость между джобами</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Как работает needs:</span>
+        </div>
+        <pre>needs: [test, build]
+
+# Если test упал  → deploy НЕ запускается
+# Если build упал → deploy НЕ запускается
+# Оба прошли      → deploy запускается
+
+# build и test работают ПАРАЛЛЕЛЬНО (оба без needs)
+# deploy ждёт пока оба закончат</pre>
+      </div>
+
+      <div class="note">
+        <strong>Зачем это нужно:</strong> Мы намеренно сломали тест (написали <code>"broken"</code> вместо <code>"healthy"</code>) и убедились: test стал красным, deploy не запустился вообще. Сломанный код не попадёт на сайт — это главный принцип CI/CD.
+      </div>
+
+      <h2>pytest — тесты для FastAPI</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>backend/tests/test_main.py</span>
+        </div>
+        <pre>from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)    # имитирует браузер, не нужен реальный сервер
+
+def test_root():
+    response = client.get("/")
+    assert response.status_code == 200       # проверяем HTTP код
+    assert response.json()["status"] == "ok" # проверяем содержимое ответа
+
+def test_health():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Запустить тесты локально</span>
+        </div>
+        <pre>cd backend
+pytest tests/ -v
+
+# Вывод при успехе:
+# PASSED tests/test_main.py::test_root
+# PASSED tests/test_main.py::test_health
+# 2 passed in 0.31s
+
+# Вывод при ошибке:
+# FAILED tests/test_main.py::test_health
+# AssertionError: assert 'healthy' == 'broken'</pre>
+      </div>
+
+      <h2>concurrency — защита от конфликтов</h2>
+      <p>Если два push прилетают подряд, два pipeline запускаются одновременно и оба пытаются задеплоить — возникает конфликт артефактов. Решение: <code>concurrency</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Concurrency в workflow</span>
+        </div>
+        <pre>concurrency:
+  group: pages              # имя группы — все запуски с этим именем конкурируют
+  cancel-in-progress: true  # если новый пуш пришёл — отменить старый запуск
+
+# Результат: всегда деплоится только ПОСЛЕДНИЙ пуш
+# Старые запуски автоматически отменяются</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Multiple artifacts uploaded — конфликт деплоя</div>
+        <pre>Error: Multiple artifacts with the same name were uploaded</pre>
+        <p>Причина: два pipeline запустились одновременно и оба создали артефакт <code>github-pages</code>.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение</div>
+        <p>Добавить блок <code>concurrency:</code> в начало workflow файла. Новый push отменит предыдущий запуск автоматически.</p>
+      </div>
     </section>
 
     <!-- PROMETHEUS + GRAFANA -->
