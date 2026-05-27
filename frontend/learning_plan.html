@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — План обучения</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      min-height: 100vh;
+    }
+    /* ============ SIDEBAR ============ */
+    .sidebar {
+      width: 240px;
+      background: #161b22;
+      border-right: 1px solid #30363d;
+      padding: 1rem;
+      overflow-y: auto;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      transition: transform 0.25s ease;
+    }
+    .sidebar h2 {
+      color: #58a6ff;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    .sidebar a {
+      display: block;
+      padding: 0.5rem 0.7rem;
+      color: #e6edf3;
+      text-decoration: none;
+      border-radius: 6px;
+      margin-bottom: 0.3rem;
+      font-size: 0.9rem;
+    }
+    .sidebar a:hover { background: #21262d; }
+    .sidebar a.active {
+      background: #1c2a3a;
+      color: #58a6ff;
+    }
+    .sidebar .label-mini {
+      color: #8b949e;
+      font-size: 0.75rem;
+      margin-top: 1rem;
+      margin-bottom: 0.3rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .home-link {
+      display: inline-block;
+      margin-bottom: 1rem;
+      color: #8b949e;
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+    .home-link:hover { color: #58a6ff; }
+
+    /* Mobile hamburger */
+    .menu-btn {
+      display: none;
+      position: fixed;
+      top: 1rem;
+      left: 1rem;
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #58a6ff;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      cursor: pointer;
+      z-index: 1001;
+      font-size: 1.2rem;
+    }
+    .menu-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 999;
+    }
+
+    /* ============ CONTENT ============ */
+    .content {
+      flex: 1;
+      padding: 2rem;
+      max-width: 1000px;
+    }
+    h1 {
+      color: #58a6ff;
+      border-bottom: 2px solid #21262d;
+      padding-bottom: 0.5rem;
+    }
+    h2 {
+      color: #79c0ff;
+      margin-top: 2rem;
+      margin-bottom: 0.5rem;
+    }
+    h3 {
+      color: #d2a8ff;
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+      font-size: 1.05rem;
+    }
+    p { line-height: 1.7; color: #c9d1d9; margin-bottom: 0.8rem; }
+    ul { padding-left: 1.5rem; }
+    li { margin-bottom: 0.3rem; color: #c9d1d9; }
+
+    .subtitle {
+      color: #8b949e;
+      font-size: 0.95rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.2rem;
+      margin: 1rem 0;
+    }
+    .card.current {
+      border-color: #ffa657;
+    }
+
+    code {
+      background: #21262d;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-family: monospace;
+      color: #79c0ff;
+      font-size: 0.88em;
+    }
+    pre {
+      background: #21262d;
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      border-left: 3px solid #58a6ff;
+      font-family: monospace;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    pre code { background: none; padding: 0; color: #e6edf3; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.7rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      margin: 0.2rem 0.2rem 0.2rem 0;
+    }
+    .green  { background: #1a4731; color: #3fb950; }
+    .blue   { background: #1c2a3a; color: #58a6ff; }
+    .purple { background: #2d1a47; color: #d2a8ff; }
+    .orange { background: #2d1f0a; color: #ffa657; }
+    .red    { background: #2d1a1a; color: #f85149; }
+
+    .current-banner {
+      background: #2d1f0a;
+      border-left: 3px solid #ffa657;
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.2rem;
+      margin: 1.5rem 0;
+    }
+    .current-banner strong { color: #ffa657; }
+
+    /* Дерево: модули как карточки, дни как строки */
+    .module {
+      background: #1c2128;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      margin: 0.8rem 0;
+    }
+    .module-head {
+      color: #d2a8ff;
+      font-weight: bold;
+      font-size: 1.05rem;
+      margin-bottom: 0.3rem;
+    }
+    .module-meta {
+      color: #8b949e;
+      font-size: 0.8rem;
+      margin-bottom: 0.5rem;
+    }
+    .module-desc {
+      color: #c9d1d9;
+      font-size: 0.92rem;
+      line-height: 1.6;
+      margin-bottom: 0.6rem;
+    }
+
+    .day {
+      padding: 0.5rem 0.7rem;
+      border-left: 2px solid #30363d;
+      margin: 0.4rem 0 0.4rem 0.5rem;
+    }
+    .day.current {
+      border-left-color: #ffa657;
+      background: #21262d;
+    }
+    .day-head {
+      color: #e6edf3;
+      font-weight: bold;
+      font-size: 0.95rem;
+      margin-bottom: 0.3rem;
+    }
+    .day-num {
+      display: inline-block;
+      background: #1c2a3a;
+      color: #58a6ff;
+      padding: 0.1rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      margin-right: 0.4rem;
+      font-weight: bold;
+    }
+    .day.current .day-num { background: #ffa657; color: #2d1f0a; }
+    .day-desc {
+      color: #c9d1d9;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      margin-bottom: 0.3rem;
+    }
+    .day-do {
+      color: #8b949e;
+      font-size: 0.85rem;
+    }
+    .day-do .ic { color: #ffa657; }
+
+    .checkpoint {
+      margin-top: 0.7rem;
+      padding-top: 0.5rem;
+      border-top: 1px dashed #30363d;
+      font-size: 0.85rem;
+      color: #8b949e;
+    }
+
+    .phase-project {
+      background: #1a2d1a;
+      border-left: 3px solid #3fb950;
+      border-radius: 0 8px 8px 0;
+      padding: 1rem 1.2rem;
+      margin: 1rem 0;
+    }
+    .phase-project .title { color: #3fb950; font-weight: bold; margin-bottom: 0.4rem; }
+    .phase-project ul { padding-left: 1.2rem; }
+    .phase-project li { font-size: 0.9rem; color: #c9d1d9; }
+
+    .score {
+      font-size: 2.5rem;
+      font-weight: bold;
+      color: #3fb950;
+      text-align: center;
+      margin: 0.5rem 0;
+    }
+
+    @media (max-width: 820px) {
+      body { display: block; }
+      .menu-btn { display: block; }
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        z-index: 1000;
+        transform: translateX(-100%);
+        padding-top: 4rem;
+      }
+      .sidebar.open { transform: translateX(0); }
+      .menu-overlay.open { display: block; }
+      .content {
+        padding: 4rem 1rem 2rem 1rem;
+        max-width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <button class="menu-btn" id="menuBtn" aria-label="Меню">☰</button>
+  <div class="menu-overlay" id="menuOverlay"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <a href="index.html" class="home-link">← На главную</a>
+    <h2>🗺 План обучения</h2>
+
+    <div class="label-mini">Фазы</div>
+    <a href="#phase1" data-section="phase1">1 · Linux + Bash</a>
+    <a href="#phase2" data-section="phase2">2 · Сети</a>
+    <a href="#phase3" data-section="phase3">3 · Docker</a>
+    <a href="#phase4" data-section="phase4">4 · Nginx</a>
+    <a href="#phase5" data-section="phase5">5 · CI/CD</a>
+    <a href="#phase6" data-section="phase6">6 · СУБД</a>
+    <a href="#phase7" data-section="phase7">7 · Мониторинг</a>
+    <a href="#phase8" data-section="phase8">8 · Ansible</a>
+    <a href="#phase9" data-section="phase9">9 · Kubernetes</a>
+    <a href="#phase10" data-section="phase10">10 · Terraform + облако</a>
+
+    <div class="label-mini">Прочее</div>
+    <a href="#legend" data-section="legend">Условные обозначения</a>
+    <a href="#summary" data-section="summary">Итоговая сводка</a>
+    <a href="notes.html">📓 Конспекты</a>
+  </aside>
+
+  <main class="content">
+
+    <h1>📚 План обучения DevOps</h1>
+    <p class="subtitle">Цель — Junior DevOps · 80k₽+ · интенсивный темп 5-6 часов/день · ≈ 3 месяца до собесов</p>
+
+    <div class="current-banner">
+      📍 <strong>Где я сейчас:</strong> ФАЗА 1 → Модуль 1.1 → День 1 — <code>/bin</code>, <code>/sbin</code>, <code>/lib</code>, <code>/lib64</code>
+    </div>
+
+    <h2 id="legend">Условные обозначения</h2>
+    <div class="card">
+      <span class="badge blue">📘 Теория</span>
+      <span class="badge orange">🛠 Hands-on</span>
+      <span class="badge green">✅ Микро-проверка</span>
+      <span class="badge purple">🧪 Контрольный тест</span>
+      <span class="badge green">🎯 Phase project</span>
+      <span class="badge blue">📝 Обновление notes.html</span>
+      <span class="badge red">🔥 Важно для собеса</span>
+    </div>
+
+    <!-- ================ PHASE 1 ================ -->
+    <h2 id="phase1">🐧 ФАЗА 1 · Linux + Bash</h2>
+    <div class="card current">
+      <span class="badge orange">14 дней</span>
+      <span class="badge blue">7 модулей</span>
+      <span class="badge red">🔥 фундамент</span>
+      <p>Сначала ФС, права, процессы, сервисы. Потом текстовая магия (grep/awk/sed) и сеть на уровне ОС. Финал — bash-скриптинг. После этой фазы ты сможешь администрировать любой Linux-сервер уверенно.</p>
+
+      <div class="module">
+        <div class="module-head">📦 Модуль 1.1 · Файловая система и навигация</div>
+        <div class="module-meta">2 дня</div>
+        <div class="module-desc">FHS (где что лежит). Симлинки. Поиск файлов через <code>find</code>, <code>locate</code>. Просмотр через <code>cat</code>/<code>less</code>/<code>tail -f</code>.</div>
+
+        <div class="day current">
+          <div class="day-head"><span class="day-num">Д1</span><code>/bin</code>, <code>/sbin</code>, <code>/lib</code>, <code>/lib64</code> + ELF, dynamic linking · симлинки · <code>/usr</code> merge</div>
+          <div class="day-desc">Бинарники vs библиотеки. <code>file /bin/ls</code> покажет ELF + dynamic linker. Первая буква <code>l</code> в <code>ls -la</code> = симлинк.</div>
+          <div class="day-do"><span class="ic">🛠</span> <code>ls -la /bin /sbin</code>, <code>file /bin/ls</code>, <code>readlink -f /bin</code>, <code>ldd /bin/ls</code></div>
+        </div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д2</span><code>/etc</code>, <code>/var</code>, <code>/usr</code>, <code>/opt</code>, <code>/tmp</code>, <code>/root</code>, <code>/home</code>, <code>/proc</code>, <code>/sys</code>, <code>/dev</code>, <code>/run</code>, <code>/boot</code></div>
+          <div class="day-desc">Все остальные директории + навигация (<code>find</code>, <code>locate</code>, <code>stat</code>) + просмотр (<code>cat</code>, <code>less</code>, <code>tail -f</code>, <code>cat -A</code>).</div>
+          <div class="day-do"><span class="ic">🛠</span> Прочитать <code>/etc/os-release</code>, <code>/etc/fstab</code>; найти все <code>.conf</code> в <code>/etc</code> старше года; <code>journalctl -f</code></div>
+        </div>
+
+        <div class="checkpoint"><span class="badge purple">🧪 тест</span> <span class="badge blue">📝 «Структура ФС»</span></div>
+      </div>
+
+      <div class="module">
+        <div class="module-head">📦 Модуль 1.2 · Права и владение</div>
+        <div class="module-meta">2 дня</div>
+        <div class="module-desc">Числовая (755, 644, 600) и символьная (<code>u+x</code>) запись. SUID/SGID/Sticky. SELinux на Fedora — почему случаются «непонятные» отказы.</div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д3</span><code>chmod</code> + <code>chown</code> + <code>chgrp</code> + <code>umask</code></div>
+          <div class="day-desc">Числовая и символьная нотация. Шаблоны 755 / 644 / 600 / 700. Почему файлы рождаются с 644.</div>
+          <div class="day-do"><span class="ic">🛠</span> Создать файлы, поменять права/владельца, поиграться с umask</div>
+        </div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д4</span>SUID / SGID / Sticky + SELinux <span class="badge red">🔥</span></div>
+          <div class="day-desc">Почему <code>/usr/bin/passwd</code> SUID. Почему <code>/tmp</code> sticky. Контексты SELinux (<code>ls -Z</code>), <code>chcon</code>, <code>restorecon</code>, <code>getenforce</code>.</div>
+          <div class="day-do"><span class="ic">🛠</span> Найти все SUID в <code>/usr/bin</code>; разобрать одно событие из <code>/var/log/audit/audit.log</code></div>
+        </div>
+
+        <div class="checkpoint"><span class="badge purple">🧪 тест</span> <span class="badge blue">📝 «Права, SELinux»</span></div>
+      </div>
+
+      <div class="module">
+        <div class="module-head">📦 Модуль 1.3 · Процессы и сервисы</div>
+        <div class="module-meta">2 дня</div>
+        <div class="module-desc">Жизнь процессов, сигналы, systemd. Свой systemd-сервис.</div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д5</span><code>ps</code>/<code>top</code>/<code>htop</code> + сигналы + фон + tmux <span class="badge red">🔥</span></div>
+          <div class="day-desc"><code>SIGTERM</code> (15) vs <code>SIGKILL</code> (9) vs <code>SIGHUP</code> (1 — reload). <code>&amp;</code>, <code>nohup</code>, <code>tmux</code> для долгоиграющих задач.</div>
+          <div class="day-do"><span class="ic">🛠</span> Запустить sleep в фоне, убить разными сигналами; tmux-сессия + отключение/переподключение</div>
+        </div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д6</span>systemd + свой unit-файл <span class="badge red">🔥</span></div>
+          <div class="day-desc"><code>systemctl</code> start/stop/restart/<strong>reload</strong>/enable. <code>journalctl -u svc -f</code>. Создать <code>my-watch.service</code>, который пишет дату каждую минуту.</div>
+          <div class="day-do"><span class="ic">🛠</span> Перезапустить <code>docker</code>, посмотреть логи; создать свой unit, активировать, проверить</div>
+        </div>
+
+        <div class="checkpoint"><span class="badge purple">🧪 тест</span> <span class="badge blue">📝 «systemd, мой первый юнит»</span></div>
+      </div>
+
+      <div class="module">
+        <div class="module-head">📦 Модуль 1.4 · Текст и pipe-магия <span class="badge red">🔥 КРИТИЧНО</span></div>
+        <div class="module-meta">3 дня</div>
+        <div class="module-desc">80% работы DevOps — парсить логи и фильтровать вывод. <code>grep</code> + <code>awk</code> + <code>sed</code> + pipe-цепочки — must-have.</div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д7</span><code>grep</code> + regex</div>
+          <div class="day-desc">Флаги <code>-i</code>, <code>-v</code>, <code>-r</code>, <code>-l</code>, <code>-n</code>, <code>-A</code>/<code>-B</code>/<code>-C</code>. Regex: <code>.</code>, <code>*</code>, <code>?</code>, <code>^</code>, <code>$</code>, <code>[abc]</code>, <code>[0-9]</code>.</div>
+          <div class="day-do"><span class="ic">🛠</span> Найти ERROR в journalctl за сутки с контекстом; найти все IPv4 в логе</div>
+        </div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д8</span><code>awk</code> + <code>sed</code></div>
+          <div class="day-desc"><code>awk</code>: поля <code>$1</code>, <code>$NF</code>, <code>-F</code>. <code>sed</code>: замены <code>s/old/new/g</code>, <code>-i</code> in-place, удаление строк.</div>
+          <div class="day-do"><span class="ic">🛠</span> Из <code>ps aux</code> вывести только PID и команду; заменить «error» на «ERR» в файле</div>
+        </div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д9</span>Сборные команды + перенаправления</div>
+          <div class="day-desc"><code>cut</code>, <code>tr</code>, <code>sort</code>, <code>uniq -c</code>, <code>xargs</code>, <code>tee</code>. <code>&gt;</code>, <code>&gt;&gt;</code>, <code>2&gt;&amp;1</code>, <code>&amp;&gt;</code>.</div>
+          <div class="day-do"><span class="ic">🛠</span> Топ-10 IP по запросам из access.log одной длинной цепочкой</div>
+        </div>
+
+        <div class="checkpoint"><span class="badge purple">🧪 тест</span> <span class="badge blue">📝 «Текстовая магия»</span></div>
+      </div>
+
+      <div class="module">
+        <div class="module-head">📦 Модуль 1.5 · Сеть на уровне ОС</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>ip</code>/<code>ss</code> вместо <code>ifconfig</code>/<code>netstat</code>. DNS-диагностика. HTTP-диагностика. firewalld.</div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д10</span><code>ip</code> + <code>ss</code> + <code>dig</code> + <code>curl -v</code> + <code>nc</code> + <code>firewall-cmd</code></div>
+          <div class="day-desc">Свой IP, шлюз, открытые порты. <code>dig +trace</code> для DNS. <code>nc -zv host port</code> — реальная проверка порта (ping ≠ порт).</div>
+          <div class="day-do"><span class="ic">🛠</span> Показать свою сеть; <code>dig +trace google.com</code>; открыть-закрыть порт через firewalld</div>
+        </div>
+
+        <div class="checkpoint"><span class="badge purple">🧪 тест</span> <span class="badge blue">📝 «Сетевая диагностика»</span></div>
+      </div>
+
+      <div class="module">
+        <div class="module-head">📦 Модуль 1.6 · Пакеты, юзеры, логи</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Менеджеры пакетов, юзеры, точечный sudo, логи и logrotate.</div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д11</span><code>dnf</code> + <code>useradd</code> + <code>/etc/sudoers.d/</code> + логи</div>
+          <div class="day-desc">Установка пакетов, поиск (<code>dnf provides</code>). Создание пользователя с точечным sudo. <code>/var/log/secure</code> для SSH-логинов. logrotate.</div>
+          <div class="day-do"><span class="ic">🛠</span> Поставить <code>htop</code>; создать <code>appuser</code> с sudo на <code>systemctl restart docker</code>; найти неудачные SSH-логины</div>
+        </div>
+
+        <div class="checkpoint"><span class="badge purple">🧪 тест</span> <span class="badge blue">📝 «Пакеты, юзеры, логи»</span></div>
+      </div>
+
+      <div class="module">
+        <div class="module-head">📦 Модуль 1.7 · Bash-скриптинг <span class="badge red">🔥 САМОЕ ВАЖНОЕ</span></div>
+        <div class="module-meta">3 дня</div>
+        <div class="module-desc">Финальный модуль фазы. Переменные, условия, циклы, функции, обработка ошибок. В конце — рабочий <code>health.sh</code>.</div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д12</span>Переменные + условия + циклы</div>
+          <div class="day-desc"><code>"</code>/<code>'</code>/<code>`</code>, <code>$(cmd)</code>. <code>if [[ ]]</code>, тесты файлов (<code>-f</code>, <code>-d</code>, <code>-r</code>). <code>for X in *.log</code>, <code>while read</code>.</div>
+          <div class="day-do"><span class="ic">🛠</span> Скрипт-визитка (hostname/uptime/диск); скрипт-алерт «если место &lt; 20%»; цикл по списку доменов с ping</div>
+        </div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д13</span>Функции + аргументы + strict mode + <code>getopts</code></div>
+          <div class="day-desc">Функции, <code>$1</code>/<code>$@</code>/<code>$#</code>, коды возврата. <code>set -euo pipefail</code>, <code>trap</code>. Парсинг флагов через <code>getopts</code>, <code>--help</code>.</div>
+          <div class="day-do"><span class="ic">🛠</span> <code>./backup.sh -d /var -o /backups</code> с проверкой обоих флагов</div>
+        </div>
+
+        <div class="day">
+          <div class="day-head"><span class="day-num">Д14</span>Финальный <code>health.sh</code> + 3 скрипта проекта</div>
+          <div class="day-desc">Сборка всего из модуля: uptime, диск, RAM, top-5 процессов, проверка живости сервисов, JSON-вывод. Плюс <code>backup_db.sh</code>, <code>cleanup_logs.sh</code>, <code>watchdog.sh</code>.</div>
+          <div class="day-do"><span class="ic">🛠</span> Все скрипты с <code>#!/usr/bin/env bash</code> + <code>set -euo pipefail</code> + <code>getopts</code> + <code>--help</code></div>
+        </div>
+
+        <div class="checkpoint"><span class="badge purple">🧪 тест</span> <span class="badge blue">📝 «Bash-скриптинг: мои шаблоны»</span></div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project ФАЗЫ 1</div>
+        <ul>
+          <li>Папка <code>scripts/</code> в проекте наполнена: <code>health.sh</code>, <code>backup_db.sh</code>, <code>cleanup_logs.sh</code>, <code>watchdog.sh</code></li>
+          <li>Один systemd-timer запускает <code>watchdog.sh</code> каждые 5 минут</li>
+          <li>Раздел в <code>notes.html</code>: «Phase 1: Linux + Bash — что я научился»</li>
+          <li>🧪 Финальный тест 25 вопросов по всей фазе</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 2 ================ -->
+    <h2 id="phase2">🌐 ФАЗА 2 · Сети</h2>
+    <div class="card">
+      <span class="badge orange">5 дней</span>
+      <span class="badge blue">6 модулей</span>
+      <p>TCP/IP до уровня заголовков, DNS до делегирования зон, TLS до handshake. Учимся «слышать» трафик через <code>tcpdump</code>.</p>
+
+      <div class="module">
+        <div class="module-head">📦 2.1 · Стек TCP/IP <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">OSI vs TCP/IP. Заголовки Ethernet → IP → TCP/UDP → HTTP. Путь пакета от ноутбука до google.com.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 2.2 · IP, маски, CIDR</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Подсчёт хостов. Частные диапазоны (<code>10/8</code>, <code>172.16/12</code>, <code>192.168/16</code>). Подсети для AWS VPC и K8s.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 2.3 · DNS глубоко</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Резолверы, делегирование. Записи A/AAAA/CNAME/MX/TXT. <code>dig +trace</code>, отладка проблем.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 2.4 · TLS / HTTPS <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Handshake, асимметричная криптография, цепочка сертификатов. <code>certbot</code> + Let's Encrypt на практике.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 2.5 · <code>tcpdump</code> + Wireshark + NAT + фаерволы</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Захват трафика, расшифровка handshake. NAT в Linux и AWS. <code>iptables</code>/<code>nftables</code>, AWS Security Groups.</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li>Nginx с HTTPS перед твоим backend (Let's Encrypt)</li>
+          <li>Записать tcpdump handshake, разобрать его</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 3 ================ -->
+    <h2 id="phase3">🐳 ФАЗА 3 · Docker мастерство</h2>
+    <div class="card">
+      <span class="badge orange">5 дней</span>
+      <span class="badge blue">6 модулей</span>
+      <p>Превращаем «работает» в «прод-готово»: namespaces, multi-stage, healthchecks, безопасность через trivy.</p>
+
+      <div class="module">
+        <div class="module-head">📦 3.1 · Архитектура контейнеров</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Namespaces (PID/NET/MNT/USER), cgroups для лимитов CPU/RAM. Runtime'ы: runc, containerd, CRI-O.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 3.2 · Образы, слои, multi-stage</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Анатомия слоёв, OverlayFS, кэширование. Multi-stage build для минимизации. <code>docker history</code>, <code>dive</code>.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 3.3 · Volumes + networking + secrets</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Named volumes vs bind mounts vs tmpfs. bridge/host/overlay сети. Docker secrets.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 3.4 · compose глубоко <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Healthchecks + <code>service_healthy</code>. Profiles (dev/prod). <code>.env</code>, override-файлы, named networks.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 3.5 · Best practices + безопасность</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>USER</code> non-root, <code>EXPOSE</code>, <code>HEALTHCHECK</code>, <code>.dockerignore</code>. Сканеры <code>trivy</code>, <code>grype</code>. Rootless Docker.</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li>Твой <code>docker-compose.yml</code> — прод-готовый: USER non-root, multi-stage Dockerfile, secrets в <code>.env</code>, healthchecks везде</li>
+          <li>Прогнать <code>trivy</code>, починить CVE</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 4 ================ -->
+    <h2 id="phase4">🌍 ФАЗА 4 · Nginx</h2>
+    <div class="card">
+      <span class="badge orange">4 дня</span>
+      <span class="badge blue">5 модулей</span>
+      <p>Reverse proxy, балансировка, HTTPS, кэш, лимиты. После фазы — настройка любого типового сценария.</p>
+
+      <div class="module">
+        <div class="module-head">📦 4.1 · Структура конфигов + <code>location</code></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Иерархия <code>http → server → location</code>. <code>server_name</code>, типы совпадения location. <code>nginx -s reload</code>.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 4.2 · <code>proxy_pass</code> + <code>upstream</code> + балансировка <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Главные директивы reverse proxy. Round-robin, least_conn, ip_hash, weight.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 4.3 · Статика, кэш, gzip</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>root</code>/<code>alias</code>, <code>try_files</code>. <code>proxy_cache</code> для backend. Сжатие gzip/brotli.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 4.4 · HTTPS + Let's Encrypt + лимиты <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>listen 443 ssl</code>, certbot + автообновление. Редирект HTTP→HTTPS. <code>limit_req</code>, заголовки безопасности.</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li>Nginx — фронт перед всеми твоими сервисами: <code>/api</code> → FastAPI, <code>/grafana</code>, <code>/prometheus</code></li>
+          <li>HTTPS, rate-limit на API, gzip, кэш статики</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 5 ================ -->
+    <h2 id="phase5">🔧 ФАЗА 5 · CI/CD</h2>
+    <div class="card">
+      <span class="badge orange">3 дня</span>
+      <span class="badge blue">4 модуля</span>
+      <p>Расширяем твой <code>pages.yml</code> до полноценного пайплайна: матричные сборки, push в registry, стратегии деплоя.</p>
+
+      <div class="module">
+        <div class="module-head">📦 5.1 · Git advanced</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>rebase</code> vs <code>merge</code> на практике, <code>cherry-pick</code>, <code>stash</code>, <code>reflog</code>.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 5.2 · GitHub Actions глубже</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Matrix, conditional, reusable workflows, composite actions, secrets, environments.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 5.3 · Docker registry + semver + стратегии деплоя <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Push в GHCR. Теги <code>:v1.2.3</code>, <code>:sha-abc</code>. Blue-green, canary, feature flags. Rollback.</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li>Расширить <code>pages.yml</code>: matrix-сборки, push образа в GHCR, lint + coverage</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 6 ================ -->
+    <h2 id="phase6">🗄️ ФАЗА 6 · СУБД (PostgreSQL + Redis)</h2>
+    <div class="card">
+      <span class="badge orange">5 дней</span>
+      <span class="badge blue">6 модулей</span>
+      <p>PostgreSQL до уровня бэкапов, индексирования, EXPLAIN. Redis как кэш/очереди/rate limit.</p>
+
+      <div class="module">
+        <div class="module-head">📦 6.1 · SQL базово</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>SELECT/WHERE/GROUP BY/HAVING</code>, агрегаты. Все типы <code>JOIN</code> с диаграммами.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 6.2 · Схема + миграции через alembic</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>CREATE TABLE</code>, типы, constraints. <code>alembic upgrade head</code> в CI.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 6.3 · Индексы + EXPLAIN ANALYZE <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">B-tree, составные, partial. <code>EXPLAIN ANALYZE</code> — главный инструмент диагностики.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 6.4 · Транзакции + блокировки</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">ACID на практике. Уровни изоляции. Deadlock.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 6.5 · Бэкапы (pg_dump, PITR) + Redis <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>pg_dump</code>/<code>pg_basebackup</code>/WAL/PITR. Правило 3-2-1. Redis: типы данных + паттерны (кэш, rate limit, очереди).</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li>«Настоящие» данные в FastAPI; миграции через <code>alembic</code>; <code>backup_db.sh</code> с ротацией; Redis для кэша</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 7 ================ -->
+    <h2 id="phase7">📊 ФАЗА 7 · Мониторинг</h2>
+    <div class="card">
+      <span class="badge orange">5 дней</span>
+      <span class="badge blue">7 модулей</span>
+      <p>Prometheus + Grafana + Zabbix. Метрики, дашборды, алерты — отличают живую систему от мёртвой.</p>
+
+      <div class="module">
+        <div class="module-head">📦 7.1 · Observability основы + типы метрик</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Метрики vs логи vs трейсы. SLO/SLI. RED, USE методики.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 7.2 · Prometheus + экспортеры <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Pull-модель. <code>node_exporter</code>, <code>postgres_exporter</code>. Counter/Gauge/Histogram.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 7.3 · PromQL <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>rate()</code>, <code>sum by()</code>, <code>histogram_quantile()</code>. Селекторы лейблов.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 7.4 · Grafana + Alertmanager</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Дашборды, переменные, готовые с grafana.com. Алерты в Telegram через Alertmanager.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 7.5 · Zabbix + логи (Loki/EFK) <span class="badge red">🔥 для РФ</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Zabbix: templates/items/triggers. Push-модель vs pull. Loki как «Prometheus для логов».</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li>FastAPI с метриками; Grafana-дашборд RED; алерт «5xx &gt; 5/мин» в Telegram</li>
+          <li>Параллельно Zabbix-стенд для практики</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 8 ================ -->
+    <h2 id="phase8">⚙️ ФАЗА 8 · Ansible</h2>
+    <div class="card">
+      <span class="badge orange">5 дней</span>
+      <span class="badge blue">6 модулей</span>
+      <p>Первый IaC. Поднимает целые серверы по описанию в YAML. Идемпотентность, playbooks, roles.</p>
+
+      <div class="module">
+        <div class="module-head">📦 8.1 · Идемпотентность + inventory + ad-hoc <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">«Запустил 100 раз — результат тот же». <code>ansible all -m ping</code>. Inventory статический и динамический.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 8.2 · Playbooks + tasks + handlers</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Модули <code>package/service/copy/template/file</code>. Handlers для рестарта при изменениях.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 8.3 · Variables + Jinja2 + facts</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">group_vars/host_vars. Шаблоны для конфигов. Facts (автособираемая инфа о хосте).</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 8.4 · Roles + Galaxy</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Переиспользуемые роли. Готовые с Galaxy (geerlingguy/nginx, geerlingguy/docker).</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 8.5 · Vault + production практики</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc"><code>ansible-vault</code> для секретов. <code>--check</code>, <code>--diff</code>, теги, Molecule для тестов.</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li>Playbook, который на свежей VM с нуля разворачивает весь <code>devops-portfolio</code></li>
+          <li>Идемпотентность: перезапуск N раз без изменений</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 9 ================ -->
+    <h2 id="phase9">☸️ ФАЗА 9 · Kubernetes</h2>
+    <div class="card">
+      <span class="badge orange">12 дней</span>
+      <span class="badge blue">10 модулей</span>
+      <span class="badge red">🔥 самая большая</span>
+      <p>«Операционная система для облака». Учим до уровня самостоятельной диагностики и деплоя.</p>
+
+      <div class="module">
+        <div class="module-head">📦 9.1 · Концепции (pod/deployment/service/ns) <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.2 · <code>kubectl</code> must-know <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">get/describe/logs/exec/apply/edit. <code>kubectl explain</code>.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.3 · YAML манифесты + labels</div>
+        <div class="module-meta">1 день</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.4 · ConfigMaps + Secrets</div>
+        <div class="module-meta">1 день</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.5 · Storage (PV/PVC/StatefulSet)</div>
+        <div class="module-meta">1 день</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.6 · Networking + Ingress + cert-manager <span class="badge red">🔥</span></div>
+        <div class="module-meta">2 дня</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.7 · Helm + observability в K8s</div>
+        <div class="module-meta">2 дня</div>
+        <div class="module-desc">Charts/values/templates. kube-prometheus-stack через Helm.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.8 · Безопасность (RBAC + NetworkPolicies)</div>
+        <div class="module-meta">1 день</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 9.9 · Локальный кластер (minikube/kind/k3s) + финал</div>
+        <div class="module-meta">2 дня</div>
+        <div class="module-desc">Подъём кластера. Деплой реального приложения.</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Phase Project</div>
+        <ul>
+          <li><code>devops-portfolio</code> живёт в локальном K8s (kind/k3s)</li>
+          <li>Каждый сервис в своём Deployment/StatefulSet</li>
+          <li>Ingress с TLS; Prometheus+Grafana через Helm; NetworkPolicy для Postgres</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ PHASE 10 ================ -->
+    <h2 id="phase10">☁️ ФАЗА 10 · Terraform + облако</h2>
+    <div class="card">
+      <span class="badge orange">7 дней</span>
+      <span class="badge blue">5 модулей</span>
+      <p>Финал. Terraform поднимает инфраструктуру в облаке по описанию. После — «я разворачиваю инфру кодом».</p>
+
+      <div class="module">
+        <div class="module-head">📦 10.1 · Terraform базово (HCL/plan/apply/state) <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 10.2 · Providers + modules + variables</div>
+        <div class="module-meta">1 день</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 10.3 · Реальное облако (AWS / Yandex Cloud)</div>
+        <div class="module-meta">2 дня</div>
+        <div class="module-desc">VM, VPC, Security Groups, Object Storage, managed DB. IAM.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 10.4 · Managed K8s (EKS / Yandex K8s)</div>
+        <div class="module-meta">2 дня</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 10.5 · Production практики (remote state + CI)</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Remote state в S3 + lock. Workspaces. terraform plan на PR.</div>
+      </div>
+
+      <div class="phase-project">
+        <div class="title">🎯 Finale Project — всё вместе</div>
+        <ul>
+          <li><code>terraform apply</code> поднимает полную инфру в облаке</li>
+          <li>Managed K8s + managed PostgreSQL + S3</li>
+          <li>GitHub Actions сам деплоит через Terraform</li>
+          <li>Описание архитектуры в notes.html — портфолио для собеса</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ================ SUMMARY ================ -->
+    <h2 id="summary">📊 Итоговая сводка</h2>
+    <div class="card">
+      <div class="score">≈ 65 дней</div>
+      <p style="text-align:center; color: #8b949e;">≈ 3 месяца при темпе 5-6 часов в день</p>
+      <p style="text-align:center;">
+        <strong>10 фаз · 60+ модулей</strong><br>
+        К <strong>2-му месяцу</strong> (после фаз 1-5) уже можно пробовать собесы на джуна-сисадмина с Docker и CI/CD.<br>
+        К <strong>3 месяцам</strong> — полный набор для DevOps-вакансий.
+      </p>
+    </div>
+
+  </main>
+
+  <script>
+    // ============ MOBILE MENU ============
+    const menuBtn = document.getElementById('menuBtn');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('menuOverlay');
+
+    function toggleMenu(open) {
+      sidebar.classList.toggle('open', open);
+      overlay.classList.toggle('open', open);
+    }
+    menuBtn.addEventListener('click', () => toggleMenu(!sidebar.classList.contains('open')));
+    overlay.addEventListener('click', () => toggleMenu(false));
+    // Закрыть меню после клика по ссылке (мобайл)
+    sidebar.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+      if (window.innerWidth <= 820) toggleMenu(false);
+    }));
+
+    // ============ SCROLL SPY ============
+    const sections = document.querySelectorAll('h2[id]');
+    const sidebarLinks = sidebar.querySelectorAll('a[data-section]');
+
+    function setActive(id) {
+      sidebarLinks.forEach(a => a.classList.toggle('active', a.dataset.section === id));
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      // Берём самый верхний видимый заголовок
+      const visible = entries.filter(e => e.isIntersecting).sort((a,b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible.length > 0) {
+        setActive(visible[0].target.id);
+      }
+    }, {
+      rootMargin: '-100px 0px -70% 0px',
+      threshold: 0
+    });
+    sections.forEach(s => observer.observe(s));
+
+    // Инициализация (если страница открылась со скроллом)
+    window.addEventListener('load', () => {
+      const hash = location.hash.slice(1);
+      if (hash) setActive(hash);
+      else setActive('phase1');
+    });
+  </script>
+
+</body>
+</html>
