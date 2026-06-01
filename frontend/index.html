@@ -73,6 +73,7 @@
 
     <h2>Что сделали</h2>
     <div class="card">
+      <span class="badge green">Linux ФС</span>
       <span class="badge green">Git</span>
       <span class="badge blue">Docker</span>
       <span class="badge blue">Docker Compose</span>
@@ -98,6 +99,24 @@
   ├── scripts/           # Bash скрипты
   ├── docker-compose.yml
   └── .github/workflows/ # GitHub Actions</code></pre>
+    </div>
+
+    <h2>🐧 Linux: ФС, бинарники, симлинки</h2>
+    <div class="card">
+      <p>Базовый блок Linux. Что лежит в системных папках, как ОС запускает программы, что такое ELF и симлинки.</p>
+      <h3>Главное</h3>
+      <pre><code><span class="cmd">/bin, /sbin, /lib, /lib64</span> — симлинки на /usr/* (/usr merge)
+<span class="cmd">file /usr/bin/ls</span>     — тип файла: ELF 64-bit, dynamically linked
+<span class="cmd">ldd /usr/bin/ls</span>      — список .so зависимостей
+<span class="cmd">readlink -f /bin</span>    — куда указывает симлинк
+<span class="cmd">ls -la</span>              — первая буква = тип файла
+                          (l симлинк, d папка, - файл)</code></pre>
+      <h3>Запомнить</h3>
+      <pre><code>Dynamic linking — программа зовёт .so из системы, не носит код в себе.
+ld-linux-x86-64.so.2 — динамический линкер, стартует ПЕРВЫМ.
+LD_PRELOAD — впрыснуть свою .so; SUID-программы её игнорируют.
+Symlink — указатель с путём, может умереть.
+Hard link — второе имя того же inode, неуязвим к удалению оригинала.</code></pre>
     </div>
 
     <h2>Git — система контроля версий</h2>

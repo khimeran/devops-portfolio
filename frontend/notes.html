@@ -37,6 +37,66 @@
     }
     .sidebar a:hover { background: #21262d; }
     .sidebar a.active { background: #1c2a3a; color: #58a6ff; }
+
+    /* поиск по разделам */
+    #nav-filter {
+      width: 100%;
+      padding: 0.45rem 0.6rem;
+      margin-bottom: 1rem;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #e6edf3;
+      font-size: 0.85rem;
+      outline: none;
+    }
+    #nav-filter:focus { border-color: #58a6ff; }
+
+    /* выпадающие группы навигации */
+    .nav-group { margin-bottom: 0.15rem; }
+    a.nav-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.4rem;
+      padding: 0.5rem 0.7rem;
+      color: #e6edf3;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .nav-head:hover { background: #21262d; }
+    .nav-head.active { background: #1c2a3a; color: #58a6ff; }
+    .nav-head .caret {
+      flex-shrink: 0;
+      font-size: 0.7rem;
+      color: #8b949e;
+      transition: transform 0.2s;
+    }
+    .nav-group.open .nav-head .caret { transform: rotate(90deg); }
+    .nav-head.devops { color: #f0883e; }
+
+    .nav-sub {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+    }
+    .nav-group.open .nav-sub { max-height: 1500px; }
+    .nav-sub a {
+      display: block;
+      padding: 0.35rem 0.7rem 0.35rem 1.4rem;
+      color: #8b949e;
+      text-decoration: none;
+      border-left: 1px solid #30363d;
+      margin-left: 0.8rem;
+      font-size: 0.82rem;
+      line-height: 1.3;
+    }
+    .nav-sub a:hover { background: #21262d; color: #e6edf3; }
+    .nav-sub a.active { color: #58a6ff; border-left-color: #58a6ff; }
+    .nav-group.hidden, .nav-sub a.hidden { display: none; }
     .content {
       flex: 1;
       padding: 2rem;
@@ -115,24 +175,453 @@
 
   <div class="sidebar">
     <h2>Конспекты</h2>
-    <a href="#git" class="active">Git</a>
-    <a href="#docker">Docker</a>
-    <a href="#docker-compose">Docker Compose</a>
-    <a href="#fastapi">FastAPI</a>
-    <a href="#sql">SQL и PostgreSQL</a>
-    <a href="#html-css">HTML и CSS</a>
-    <a href="#github-actions">GitHub Actions</a>
-    <a href="#prometheus-grafana">Prometheus + Grafana</a>
-    <a href="#ansible">Ansible</a>
-    <a href="#jenkins">Jenkins</a>
-    <a href="#ha-clusters">Отказоустойчивые кластеры</a>
-    <a href="#jira-confluence">Jira / Confluence</a>
-    <a href="#devops-tips" style="margin-top:1rem; border-top:1px solid #30363d; padding-top:1rem; color:#f0883e;">⚡ Важно для DevOps</a>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
   </div>
 
   <div class="content">
     <a href="index.html" class="home-link">← Главная</a>
     <a href="learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <!-- LINUX FS -->
+    <section id="linux-fs">
+      <h1>🐧 Linux: файловая система, бинарники, симлинки</h1>
+      <p>Большой блок про устройство Linux. Делится на две темы: как устроены <strong>бинарники и ссылки</strong> (что запускается и как программы находят библиотеки) и как <strong>навигироваться по файловой системе</strong> (где что лежит, как монтируются диски, откуда брать метрики).</p>
+
+      <!-- ============ ТЕМА 1 ============ -->
+      <h2>Бинарники и ссылки</h2>
+      <p>Из чего состоит исполняемый файл, как ядро его запускает, чем симлинк отличается от hard link и как читать вывод <code>ls -l</code>.</p>
+
+      <h3>Системные папки и <code>/usr</code> merge</h3>
+      <p>В Linux всё разложено по назначению. Бинарники — в <code>bin</code>-папках, библиотеки — в <code>lib</code>-папках.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FS</span>
+          <span>Где лежат программы и библиотеки</span>
+        </div>
+        <pre>/bin    → команды для всех юзеров (ls, cat, cp, grep)
+/sbin   → админские команды (mount, fdisk, mkfs, reboot)
+          s = system, НЕ super
+/lib    → 32-битные общие библиотеки (.so файлы)
+/lib64  → 64-битные общие библиотеки
+/usr/bin, /usr/sbin, /usr/lib64 → то же самое, основное место
+
+# где шелл ищет команды — переменная PATH:
+echo $PATH
+# /usr/local/bin:/usr/bin:/usr/sbin:/home/kirill/.local/bin ...
+# слева направо: какая папка раньше — та команда и выигрывает
+
+which ls        # покажет полный путь найденной команды
+type ls         # команда / алиас / встроенная в шелл / функция</pre>
+      </div>
+
+      <div class="note">
+        <strong>/usr merge:</strong> на современной Fedora <code>/bin</code>, <code>/sbin</code>, <code>/lib</code>, <code>/lib64</code> — это симлинки на <code>/usr/bin</code>, <code>/usr/sbin</code>, <code>/usr/lib</code>, <code>/usr/lib64</code>. Раньше папки были отдельными (на маленьких дисках <code>/usr</code> монтировался позже корня), сейчас всё унифицировано в <code>/usr</code>. Проверить: <code>readlink -f /bin</code> → <code>/usr/bin</code>.
+      </div>
+
+      <h3>ELF — формат бинарников</h3>
+      <p>Каждый исполняемый файл — это ELF (Executable and Linkable Format), аналог <code>.exe</code> в Windows. Внутри: заголовок + машинный код + список нужных <code>.so</code> библиотек. Опознаётся по первым 4 байтам: <code>0x7F 'E' 'L' 'F'</code> («магическое число»).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Заглянуть внутрь бинарника</span>
+        </div>
+        <pre>file /usr/bin/ls
+# ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV),
+# dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2,
+# BuildID[sha1]=..., for GNU/Linux 3.2.0, stripped
+
+hexdump -C /usr/bin/ls | head -1
+# 00000000  7f 45 4c 46 02 01 01 00  ...  |.ELF............|
+#           └ те самые магические байты 7f 'E' 'L' 'F'</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>Что означает каждое поле вывода file</span>
+        </div>
+        <pre>ELF 64-bit       — формат + битность (64-битные адреса)
+LSB              — little-endian (порядок байт, как у всех x86)
+pie executable   — Position Independent Executable:
+                   можно грузить в любой адрес памяти.
+                   Нужно для ASLR — защиты от эксплойтов
+                   (адреса в памяти случайны при каждом запуске)
+x86-64           — архитектура процессора (Intel/AMD 64-bit;
+                   у ARM было бы aarch64)
+SYSV             — System V ABI, стандарт общения с ядром
+dynamically linked  — программа ЗОВЁТ .so из системы,
+                      а не носит код в себе
+interpreter /lib64/ld-linux-x86-64.so.2
+                 — динамический линкер, стартует ПЕРВЫМ
+BuildID          — уникальный хэш сборки (для debug/core dumps)
+stripped         — без отладочных символов (имён функций) —
+                   меньше размер, так делают для прода</pre>
+      </div>
+
+      <h3>Dynamic vs static linking</h3>
+      <p>Динамическая линковка — программа использует общие <code>.so</code> библиотеки из системы. Статическая — весь код «вшит» в бинарник, он самодостаточен (так собирают Go-программы, <code>busybox</code>).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Как запускается dynamically linked ls</span>
+        </div>
+        <pre>1. Ядро видит ELF + interpreter в заголовке
+2. Запускает ld-linux-x86-64.so.2 (динамический линкер) ПЕРВЫМ
+3. Линкер читает список зависимостей из ELF
+4. Находит .so файлы в /lib64, /usr/lib64
+5. Подгружает их в память, подставляет адреса функций
+6. И только ТОГДА стартует main() твоей программы</pre>
+      </div>
+
+      <div class="note">
+        <strong>Dynamic (по умолчанию):</strong>
+        <br>+ <code>ls</code> весит ~140 КБ вместо ~2 МБ — не носит код стандартных функций в себе
+        <br>+ Обновили <code>libc</code> один раз — все программы стали безопаснее, пересобирать не надо
+        <br>− Если удалить <code>libc.so.6</code> — НИЧЕГО не запустится, даже <code>ls</code>. Восстановить только с live-USB.
+        <br><br><strong>Static (Go, busybox, scratch-образы Docker):</strong>
+        <br>+ Один файл, ни от чего не зависит — кинул на любой сервер и работает
+        <br>− Большой размер, обновление libc не подхватывается автоматически
+      </div>
+
+      <h3>Команда <code>ldd</code> — зависимости бинарника</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Список .so библиотек</span>
+        </div>
+        <pre>ldd /usr/bin/ls
+# формат строки:  имя.so => /реальный/путь (адрес_в_памяти)
+
+libc.so.6           # стандартная C (printf, malloc, open) — главная
+libpthread.so.0     # многопоточность
+libdl.so.2          # динамическая подгрузка .so на лету
+librt.so.1          # POSIX real-time (таймеры, async I/O)
+libpcre2-8.so.0     # регулярные выражения
+libselinux.so.1     # поддержка SELinux
+
+# особые строки без "=>":
+linux-vdso.so.1     # ВИРТУАЛЬНАЯ библиотека: её нет на диске,
+                    # ядро впрыскивает в каждый процесс, чтобы
+                    # ускорить частые вызовы (gettimeofday и т.п.)
+/lib64/ld-linux-x86-64.so.2  # сам динамический линкер
+
+# где линкер вообще ищет библиотеки:
+ldconfig -p | head        # кэш всех известных .so в системе
+cat /etc/ld.so.conf.d/*   # доп. пути для поиска библиотек</pre>
+      </div>
+
+      <h3><code>LD_PRELOAD</code> — впрыснуть свою библиотеку</h3>
+      <p>Переменная окружения. Если выставлена — динамический линкер подгрузит указанную <code>.so</code> ПЕРВОЙ, и её функции перекроют системные.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Проверить и найти, где задаётся</span>
+        </div>
+        <pre>echo $LD_PRELOAD                 # переменная текущего юзера
+cat /etc/ld.so.preload           # системный preload (для ВСЕХ)
+sudo grep -r "LD_PRELOAD" /etc   # широкий поиск, где задаётся
+
+# может выставляться в:
+# ~/.bashrc, ~/.bash_profile     — на уровне юзера
+# /etc/profile, /etc/profile.d/  — система, всем юзерам
+# /etc/ld.so.preload             — глобально, для ВСЕХ программ
+# /etc/xdg/<DE>/env/             — графическая сессия (KDE/GNOME)</pre>
+      </div>
+
+      <div class="note">
+        <strong>Зачем нужен LD_PRELOAD:</strong>
+        <br>✅ Дебаг и профилирование (Valgrind, AddressSanitizer подменяют malloc)
+        <br>✅ Перехват вызовов (NoMachine так перехватывает графику — на этой машине он впрыснут через KDE-сессию)
+        <br>🔥 Атаки: подсунуть вредоносный <code>.so</code>. Поэтому SUID-программы (<code>passwd</code>, <code>sudo</code>) <strong>игнорируют</strong> <code>LD_PRELOAD</code> — защита от эскалации прав.
+      </div>
+
+      <h3>Симлинки и hard links</h3>
+      <p>Два способа сослаться на файл. Симлинк — отдельный файл-указатель с путём внутри. Hard link — ещё одно имя того же физического файла (inode).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SYMLINK</span>
+          <span>Символическая ссылка (мягкая)</span>
+        </div>
+        <pre># маленький файл, внутри которого записан ПУТЬ (текстом)
+# в ls -la: первая буква l, есть стрелка ->
+# может указывать на директорию
+# может пересекать файловые системы
+# если цель удалить/переименовать — симлинк ломается (dangling)
+
+ln -s /usr/bin/python3 /tmp/py     # создать (-s = symbolic)
+readlink -f /tmp/py                # куда указывает (до конца цепочки)
+ls -la /tmp/py                     # увидеть стрелку ->
+
+# пример из системы:
+# lrwxrwxrwx 1 root root 7 янв 16 /bin -> usr/bin
+#                        └ размер 7 = длина строки "usr/bin"</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HARD LINK</span>
+          <span>Жёсткая ссылка</span>
+        </div>
+        <pre># второе ИМЯ того же inode (один физический файл — два имени)
+# в ls -la выглядит как обычный файл (счётчик ссылок > 1)
+# ТОЛЬКО на файлы, НЕ на директории
+# ТОЛЬКО внутри одной файловой системы (inode привязан к ФС)
+# удалили "оригинал" — файл жив, доступен по второму имени
+
+ln /path/file /path/hardlink       # создать (без -s)
+ls -li file hardlink               # одинаковый номер inode слева
+stat file                          # Links: 2 — счётчик имён</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> симлинк — указатель с путём, может «протухнуть». Hard link — второе имя того же inode, неуязвим к удалению оригинала. Симлинк на собеседованиях спрашивают часто.
+      </div>
+
+      <h3>Как читать <code>ls -la</code></h3>
+      <p>Строка вывода <code>ls -l</code> состоит из полей. Разберём на примере симлинка <code>/bin</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>lrwxrwxrwx. 1 root root 7 янв 16 /bin -> usr/bin</span>
+        </div>
+        <pre>l           тип файла (см. таблицу ниже)
+rwxrwxrwx   права: владелец | группа | остальные (r/w/x)
+.           есть SELinux-контекст (на Ubuntu точки нет)
+1           счётчик жёстких ссылок на этот inode
+root        владелец (юзер)
+root        группа-владелец
+7           размер в байтах
+янв 16      дата последнего изменения (mtime)
+/bin        имя
+-> usr/bin  куда указывает (только у симлинков)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МАРКЕРЫ</span>
+          <span>Первая буква = тип файла</span>
+        </div>
+        <pre>-   обычный файл
+d   директория
+l   симлинк (символическая ссылка)
+c   character device  (/dev/null, /dev/tty)
+b   block device      (/dev/sda, /dev/nvme0n1)
+p   named pipe (FIFO)
+s   unix socket       (/var/run/docker.sock)</pre>
+      </div>
+
+      <h3>Шпаргалка: разбор файлов</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Команды этой темы</span>
+        </div>
+        <pre>file &lt;путь&gt;          # тип файла по содержимому (не по расширению)
+ldd &lt;бинарник&gt;       # список .so зависимостей
+ldconfig -p         # кэш всех библиотек системы
+readlink -f &lt;путь&gt;   # куда указывает симлинк (вся цепочка)
+which &lt;cmd&gt;          # полный путь команды из PATH
+type &lt;cmd&gt;           # команда / алиас / встроенная / функция
+ls -la &lt;путь&gt;        # длинный формат + скрытые файлы
+ls -li &lt;путь&gt;        # + номер inode (для hard links)
+stat &lt;путь&gt;          # inode, права, размер, времена, счётчик ссылок
+ln -s target link    # создать симлинк
+ln target hardlink   # создать hard link</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> бинарник = ELF, который зовёт код из общих <code>.so</code>. Линкер <code>ld-linux</code> стартует первым и подгружает зависимости. <code>LD_PRELOAD</code> впрыскивает свою библиотеку (SUID её игнорирует). Симлинк — указатель, hard link — второе имя inode. Тип файла видно по первой букве <code>ls -l</code>.
+      </div>
+
+      <!-- ============ ТЕМА 2 ============ -->
+      <h2>Навигация по файловой системе</h2>
+      <p>Где что лежит в корне, как читать конфиги системы, как монтируются диски и откуда берутся метрики для мониторинга.</p>
+
+      <h3>Карта корневой ФС</h3>
+      <p>В Linux папки сгруппированы <strong>по назначению</strong>, а не по приложениям (как <code>C:\Program Files\App\</code> в Windows).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FS</span>
+          <span>Что где лежит в /</span>
+        </div>
+        <pre>/etc    → конфиги системы и сервисов (текстовые файлы)
+/var    → изменяемые данные программ:
+            /var/log    — логи (сюда смотрят, когда упало)
+            /var/lib    — данные сервисов (БД, docker)
+            /var/cache  — кэши пакетов и программ
+/usr    → установленные программы и их статичные данные
+/opt    → сторонний/коммерческий софт целым каталогом
+/tmp    → временные файлы (чистятся при ребуте)
+/run    → runtime работающих сервисов (PID-файлы, сокеты)
+/home   → домашние папки обычных юзеров
+/root   → домашняя папка администратора
+/proc   → ВИРТУАЛЬНАЯ ФС: процессы и параметры ядра
+/sys    → ВИРТУАЛЬНАЯ ФС: железо и драйверы
+/dev    → файлы устройств (диски, /dev/null, терминалы)
+/boot   → ядро Linux + initramfs + загрузчик GRUB</pre>
+      </div>
+
+      <div class="note">
+        <strong>Где живёт девопс:</strong> <code>/etc</code> (настроить сервис), <code>/var/log</code> (понять, почему упало), <code>/proc</code> + <code>/sys</code> (диагностика и метрики).
+      </div>
+
+      <h3><code>/etc/os-release</code> — версия дистрибутива</h3>
+      <p>Стандартный файл на любом Linux. Скрипты читают его, чтобы понять, на чём бегут, и выбрать правильный пакетный менеджер.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Кросс-дистрибутивный скрипт</span>
+        </div>
+        <pre>cat /etc/os-release      # NAME, VERSION_ID, ID, PRETTY_NAME, SUPPORT_END...
+
+source /etc/os-release   # загрузить переменные из файла в шелл
+if [ "$ID" = "fedora" ] && [ "$VERSION_ID" -ge 40 ]; then
+  sudo dnf install ...
+elif [ "$ID" = "ubuntu" ]; then
+  sudo apt install ...
+fi
+# ID         — машиночитаемый (fedora, ubuntu, rhel) — стабилен
+# VERSION_ID — числовая версия для сравнений
+# SUPPORT_END — дата конца поддержки (важно для прода)</pre>
+      </div>
+
+      <h3><code>/etc/fstab</code> и монтирование</h3>
+      <p>Список разделов, которые ОС автоматически монтирует при старте. 6 колонок на строку.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FSTAB</span>
+          <span>Формат строки</span>
+        </div>
+        <pre>&lt;device&gt;  &lt;mountpoint&gt;  &lt;fstype&gt;  &lt;options&gt;  &lt;dump&gt;  &lt;pass&gt;
+   1            2           3         4        5       6
+
+1 device     — откуда: UUID=..., LABEL=..., /dev/sda1
+2 mountpoint — куда: /, /home, /boot
+3 fstype     — ext4, btrfs, xfs, vfat, tmpfs, nfs
+4 options    — defaults, ro, noatime, subvol=...
+5 dump       — бэкап утилитой dump (почти всегда 0)
+6 pass       — порядок fsck: 0 не проверять, 1 корень, 2 остальное
+
+# пример:
+UUID=eaa658da-... /     btrfs subvol=root,compress=zstd:1 0 0
+UUID=d6a84d64-... /boot ext4  defaults                    1 2
+
+mount             # что сейчас примонтировано
+findmnt           # то же, но деревом и читаемо</pre>
+      </div>
+
+      <div class="note">
+        <strong>Почему UUID, а не <code>/dev/sda1</code>:</strong> имена устройств (<code>sda</code>, <code>sdb</code>, <code>nvme0n1</code>) ядро назначает в порядке обнаружения железа — он НЕ гарантирован. Воткнул флешку → она стала <code>/dev/sda</code>, системный диск съехал → система не грузится. UUID записан внутри самой ФС и не меняется.
+      </div>
+
+      <h3>Диски: <code>lsblk</code>, btrfs, zram</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Карта дисков и разделов</span>
+        </div>
+        <pre>lsblk        # дерево: диски → разделы
+lsblk -f     # + тип ФС, метка, UUID, заполнение, mountpoint
+df -h        # сколько места занято по точкам монтирования
+du -sh *     # размер папок в текущем каталоге
+
+# btrfs-сабволумы: / и /home могут жить на ОДНОМ разделе
+# (один UUID, разные subvol=root и subvol=home)
+# → можно переустановить ОС, оставив /home нетронутым
+
+# zram — swap в СЖАТОМ виде прямо в RAM (Fedora по умолчанию):
+# выгруженные страницы сжимаются (zstd/lz4), ~2-3x экономии,
+# RAM в тысячи раз быстрее диска, SSD не изнашивается записями</pre>
+      </div>
+
+      <h3><code>/proc</code> и <code>/sys</code> — виртуальные ФС</h3>
+      <p>Этих файлов <strong>нет на диске</strong>. Когда читаешь файл из <code>/proc</code>, ядро генерирует ответ на лету. Принцип Unix: «всё есть файл» — спросить ядро о CPU = прочитать файл (<code>ls -la /proc/cpuinfo</code> покажет размер 0 байт).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Диагностика через /proc</span>
+        </div>
+        <pre>cat /proc/cpuinfo        # процессор: модель, ядра, flags
+cat /proc/meminfo        # память: MemTotal, MemAvailable
+cat /proc/loadavg        # средняя нагрузка за 1/5/15 минут
+cat /proc/uptime         # сколько система работает (секунды)
+nproc                    # число логических ядер (для make -j)
+
+# проверить, можно ли поднять виртуалки/KVM-ноду:
+grep -E "vmx|svm" /proc/cpuinfo
+# vmx = Intel VT-x, svm = AMD-V
+# пусто → виртуализация выключена в BIOS, KVM не запустить</pre>
+      </div>
+
+      <div class="note">
+        <strong>Связь с мониторингом:</strong> <code>node_exporter</code> (агент Prometheus из твоего проекта) читает ровно эти файлы — <code>/proc/meminfo</code>, <code>/proc/cpuinfo</code>, <code>/proc/stat</code>, <code>/proc/loadavg</code> — и отдаёт Prometheus. Графики RAM/CPU в Grafana = красиво нарисованный <code>/proc</code>.
+      </div>
+
+      <h3><code>/boot</code> и ядра</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Ядра системы</span>
+        </div>
+        <pre>uname -r          # какое ядро ЗАГРУЖЕНО сейчас
+rpm -q kernel     # какие ядра УСТАНОВЛЕНЫ (Fedora хранит 3)
+
+# при dnf update новое ядро ставится РЯДОМ со старым, не вместо.
+# зачем: если новое не загрузится — выбрать старое в меню GRUB.
+# /etc/dnf/dnf.conf → installonly_limit=3 (старые авто-удаляются)
+# поэтому /boot со временем заполняется — там копятся ядра
+
+# имя ядра: kernel-7.0.10-200.fc44.x86_64
+#                  │      │   │     └ архитектура
+#                  │      │   └ fc44 = Fedora 44
+#                  │      └ 200 = сборка Fedora
+#                  └ 7.0.10 = версия с kernel.org
+
+# новое ядро применяется ТОЛЬКО после reboot
+# (uname -r может показывать НЕ самое новое из rpm -q kernel)</pre>
+      </div>
+
+      <h3>Память: <code>free</code> vs <code>available</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>free -h — использование памяти</span>
+        </div>
+        <pre>free -h
+#         total  used  free  shared  buff/cache  available
+# Mem:    15Gi   6,5Gi 1,1Gi 1,4Gi   9,5Gi       8,8Gi
+
+# total       — всего RAM
+# used        — реально занято процессами
+# free        — совсем нетронуто
+# buff/cache  — дисковый кэш (копии файлов для скорости)
+# available   — ⭐ сколько РЕАЛЬНО доступно новым программам</pre>
+      </div>
+
+      <div class="note">
+        <strong>🪤 Ловушка:</strong> маленький <code>free</code> — это НЕ проблема. Ядро забивает свободную RAM дисковым кэшем (<code>buff/cache</code>) и мгновенно отдаёт её программам по требованию. Реальная метрика «сколько свободно» — это <code>available</code>, а не <code>free</code>. Высокий buff/cache = здоровая система (см. linuxatemyram.com).
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> папки сгруппированы по назначению; конфиги — в <code>/etc</code>, логи — в <code>/var/log</code>. <code>fstab</code> монтирует разделы по UUID (надёжнее имён устройств). <code>/proc</code> и <code>/sys</code> — виртуальные ФС, ядро отдаёт через них метрики (их и читает Prometheus). <code>available</code> — настоящая свободная память, не <code>free</code>.
+      </div>
+    </section>
 
     <!-- GIT -->
     <section id="git">
@@ -2748,29 +3237,111 @@ SELECT NULLIF(progress, 0) FROM topics;
   </div>
 
   <script>
-    const links = document.querySelectorAll('.sidebar a');
+    const nav = document.getElementById('nav');
+    const sections = [...document.querySelectorAll('.content section')];
 
-    links.forEach(link => {
-      link.addEventListener('click', () => {
-        links.forEach(l => l.classList.remove('active'));
-        link.classList.add('active');
+    // короткая подпись для группы: убираем emoji в начале и хвост после — или :
+    function shortLabel(text) {
+      return text
+        .replace(/^[^\p{L}\p{N}]+/u, '')   // emoji/символы в начале
+        .split(/\s+[—–-]\s+|:\s/)[0]       // часть до « — » или «: »
+        .trim();
+    }
+
+    // строим выпадающее меню из секций и их h2
+    const groups = [];
+    sections.forEach(section => {
+      const h1 = section.querySelector('h1');
+      if (!h1) return;
+
+      const group = document.createElement('div');
+      group.className = 'nav-group';
+      group.dataset.section = section.id;
+
+      const head = document.createElement('a');
+      head.className = 'nav-head' + (section.id === 'devops-tips' ? ' devops' : '');
+      head.href = '#' + section.id;
+      head.innerHTML = `<span>${shortLabel(h1.textContent)}</span><span class="caret">▶</span>`;
+
+      const sub = document.createElement('div');
+      sub.className = 'nav-sub';
+
+      const subLinks = [];
+      section.querySelectorAll('h2').forEach((h2, i) => {
+        if (!h2.id) h2.id = section.id + '-s' + i;
+        const a = document.createElement('a');
+        a.href = '#' + h2.id;
+        a.textContent = h2.textContent;
+        sub.appendChild(a);
+        subLinks.push(a);
       });
+
+      head.addEventListener('click', () => openGroup(group));
+      group.appendChild(head);
+      group.appendChild(sub);
+      nav.appendChild(group);
+      groups.push({ group, head, sub, subLinks, sectionId: section.id });
     });
 
-    const sections = document.querySelectorAll('section');
+    // аккордеон: открыть одну группу, закрыть остальные
+    function openGroup(group) {
+      groups.forEach(g => g.group.classList.toggle('open', g.group === group));
+    }
 
-    const observer = new IntersectionObserver(entries => {
+    // первая группа открыта по умолчанию
+    if (groups.length) groups[0].group.classList.add('open');
+
+    // подсветка активной секции + авто-раскрытие при скролле
+    const sectionObserver = new IntersectionObserver(entries => {
       entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          const id = entry.target.id;
-          links.forEach(l => l.classList.remove('active'));
-          const active = document.querySelector(`.sidebar a[href="#${id}"]`);
-          if (active) active.classList.add('active');
-        }
+        if (!entry.isIntersecting) return;
+        const id = entry.target.id;
+        groups.forEach(g => {
+          const isActive = g.sectionId === id;
+          g.head.classList.toggle('active', isActive);
+          if (isActive) openGroup(g.group);
+        });
       });
     }, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
+    sections.forEach(s => sectionObserver.observe(s));
 
-    sections.forEach(section => observer.observe(section));
+    // подсветка активного подраздела (h2)
+    const allSubLinks = groups.flatMap(g => g.subLinks);
+    const headings = [...document.querySelectorAll('.content section h2')];
+    const headingObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const id = entry.target.id;
+        allSubLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      });
+    }, { rootMargin: '0px 0px -80% 0px', threshold: 0 });
+    headings.forEach(h => headingObserver.observe(h));
+
+    // поиск по разделам и подразделам
+    const filter = document.getElementById('nav-filter');
+    filter.addEventListener('input', () => {
+      const q = filter.value.trim().toLowerCase();
+      if (!q) {
+        const active = groups.find(g => g.head.classList.contains('active')) || groups[0];
+        groups.forEach(g => {
+          g.group.classList.remove('hidden');
+          g.subLinks.forEach(a => a.classList.remove('hidden'));
+          g.group.classList.toggle('open', g === active);
+        });
+        return;
+      }
+      groups.forEach(g => {
+        const headMatch = g.head.textContent.toLowerCase().includes(q);
+        let any = headMatch;
+        g.subLinks.forEach(a => {
+          const m = a.textContent.toLowerCase().includes(q);
+          a.classList.toggle('hidden', !(m || headMatch));
+          if (m) any = true;
+        });
+        g.group.classList.toggle('hidden', !any);
+        g.group.classList.toggle('open', any);  // раскрыть совпавшие
+      });
+    });
   </script>
 </body>
 </html>
