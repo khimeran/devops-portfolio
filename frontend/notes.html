@@ -183,10 +183,10 @@
     <a href="index.html" class="home-link">← Главная</a>
     <a href="learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
 
-    <!-- LINUX FS -->
+    <!-- LINUX -->
     <section id="linux-fs">
-      <h1>🐧 Linux: файловая система, бинарники, симлинки</h1>
-      <p>Большой блок про устройство Linux. Делится на две темы: как устроены <strong>бинарники и ссылки</strong> (что запускается и как программы находят библиотеки) и как <strong>навигироваться по файловой системе</strong> (где что лежит, как монтируются диски, откуда брать метрики).</p>
+      <h1>🐧 Linux</h1>
+      <p>Большой блок про устройство Linux. Делится на три темы: <strong>бинарники и ссылки</strong> (что запускается и как программы находят библиотеки), <strong>навигация по файловой системе</strong> (где что лежит, как монтируются диски, откуда брать метрики) и <strong>права в Linux</strong> (как файлы защищены, что такое <code>chmod</code>/<code>chown</code>/<code>umask</code>, спецбиты, SELinux и Docker-капкан).</p>
 
       <!-- ============ ТЕМА 1 ============ -->
       <h2>Бинарники и ссылки</h2>
@@ -621,15 +621,12 @@ rpm -q kernel     # какие ядра УСТАНОВЛЕНЫ (Fedora хран�
       <div class="note">
         <strong>Итог темы:</strong> папки сгруппированы по назначению; конфиги — в <code>/etc</code>, логи — в <code>/var/log</code>. <code>fstab</code> монтирует разделы по UUID (надёжнее имён устройств). <code>/proc</code> и <code>/sys</code> — виртуальные ФС, ядро отдаёт через них метрики (их и читает Prometheus). <code>available</code> — настоящая свободная память, не <code>free</code>.
       </div>
-    </section>
 
-    <!-- LINUX PERMS -->
-    <section id="linux-perms">
-      <h1>🔐 Linux: права, владение, umask</h1>
-      <p>Каждый файл и папка в Linux принадлежит <strong>одному юзеру</strong> и <strong>одной группе</strong>, и для каждого из них (плюс «всех остальных») независимо настроены три права: читать, писать, выполнять. Этот блок — про то, как читать строку прав в <code>ls -l</code>, как её менять (<code>chmod</code>, <code>chown</code>, <code>chgrp</code>), откуда берутся «дефолтные» права у новых файлов (<code>umask</code>), что такое SUID/SGID/sticky, и про два капкана Fedora: SELinux и владение от <code>root</code> у файлов из контейнера.</p>
+      <!-- ============ ТЕМА 3: ПРАВА ============ -->
+      <h2>Права в Linux</h2>
+      <p>Третья большая тема: кто чем владеет и кто что может делать. Каждый файл и папка в Linux принадлежит <strong>одному юзеру</strong> и <strong>одной группе</strong>, и для каждого из них (плюс «всех остальных») независимо настроены три права: читать, писать, выполнять. Здесь — как читать строку прав в <code>ls -l</code>, как её менять (<code>chmod</code>, <code>chown</code>, <code>chgrp</code>), откуда берутся «дефолтные» права у новых файлов (<code>umask</code>), что такое SUID/SGID/sticky, и про два капкана Fedora: SELinux и владение от <code>root</code> у файлов из контейнера.</p>
 
-      <!-- ============ ТЕМА 1: МОДЕЛЬ ============ -->
-      <h2>Модель rwx × ugo</h2>
+      <h3>Модель rwx × ugo</h3>
       <p>Linux разделяет права по трём «ролям» и трём «действиям». Это и есть знаменитые девять битов.</p>
 
       <div class="code-block">
@@ -644,7 +641,7 @@ rpm -q kernel     # какие ядра УСТАНОВЛЕНЫ (Fedora хран�
   a (all)   — u + g + o</pre>
       </div>
 
-      <h3>Как читать строку прав из <code>ls -l</code></h3>
+      <h4>Как читать строку прав из <code>ls -l</code></h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -668,7 +665,7 @@ deploy.sh   имя</pre>
         <strong>Запомни:</strong> у каждой роли всегда <strong>ровно три слота</strong> в фиксированном порядке <code>r-w-x</code>. Чёрточка <code>-</code> — это не «нет буквы», а <strong>«право отнято»</strong>. Длина блока прав всегда 9 символов (плюс тип файла слева).
       </div>
 
-      <h3>На файле и на папке биты значат РАЗНОЕ</h3>
+      <h4>На файле и на папке биты значат РАЗНОЕ</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -706,7 +703,7 @@ sudo -u nobody cat vault/treasure    # Permission denied (нет x)</pre>
         <strong>Удалить файл = «выкинуть запись из списка» в родительской папке.</strong> Право на удаление лежит у <strong>папки</strong>, а не у файла. Если у тебя <code>w</code> на папке — ты удалишь даже <strong>чужой</strong> файл, который тебе не принадлежит и который ты не можешь редактировать. От этого защищает sticky-бит (см. ниже про <code>/tmp</code>).
       </div>
 
-      <h3>Алгоритм проверки прав в ядре</h3>
+      <h4>Алгоритм проверки прав в ядре</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -723,7 +720,7 @@ sudo -u nobody cat vault/treasure    # Permission denied (нет x)</pre>
         <strong>🪤 Парадокс на собесе:</strong> <code>chmod 077 file</code> даст права <code>----rwxrwx</code>. И ты, владелец, <strong>НЕ сможешь</strong> читать этот файл (<code>Permission denied</code>), хотя у группы и остальных <code>rwx</code>. Потому что владелец подпадает под первый блок — на нём проверка останавливается. Шире права у других — не помогает.
       </div>
 
-      <h3>В Linux расширение НЕ запускает программу</h3>
+      <h4>В Linux расширение НЕ запускает программу</h4>
       <p>Это самый частый миф у людей с Windows-фоном. Linux <strong>не смотрит на расширение</strong>. Файл запускается, если:</p>
 
       <div class="code-block">
@@ -741,7 +738,7 @@ sudo -u nobody cat vault/treasure    # Permission denied (нет x)</pre>
       </div>
 
       <!-- ============ ТЕМА 2: CHMOD ============ -->
-      <h2>chmod — меняем права</h2>
+      <h3>chmod — меняем права</h3>
       <p>У <code>chmod</code> два эквивалентных синтаксиса: <strong>символьный</strong> (<code>u+x</code>) и <strong>числовой</strong> (<code>755</code>).</p>
 
       <div class="code-block">
@@ -788,7 +785,7 @@ chmod u=rwx,go=rx script   # выставить ровно — самый пре
       </div>
 
       <!-- ============ ТЕМА 3: CHOWN ============ -->
-      <h2>chown / chgrp — меняем владельца</h2>
+      <h3>chown / chgrp — меняем владельца</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -831,7 +828,7 @@ groups                # список твоих групп
       </div>
 
       <!-- ============ ТЕМА 4: UMASK ============ -->
-      <h2>umask — дефолтные права новых файлов</h2>
+      <h3>umask — дефолтные права новых файлов</h3>
       <p><code>umask</code> — это «маска вычитания». От базового «потенциала» ядро отнимает биты <code>umask</code>, и так получаются права свежесозданного файла.</p>
 
       <div class="code-block">
@@ -875,7 +872,7 @@ UMask= в systemd-юните          — umask для конкретного д
       </div>
 
       <!-- ============ ТЕМА 5: СПЕЦБИТЫ ============ -->
-      <h2>Спецбиты: SUID, SGID, sticky</h2>
+      <h3>Спецбиты: SUID, SGID, sticky</h3>
       <p>К девяти обычным битам добавляются три «специальных» — они меняют поведение исполнения и создания файлов. В <code>ls -l</code> показаны буквой на месте <code>x</code>:</p>
 
       <div class="code-block">
@@ -891,7 +888,7 @@ UMask= в systemd-юните          — umask для конкретного д
 большая буква   = бит установлен, но x НЕТ (обычно ошибка)</pre>
       </div>
 
-      <h3>SUID — пример с <code>passwd</code></h3>
+      <h4>SUID — пример с <code>passwd</code></h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -918,7 +915,7 @@ find /usr/bin /usr/sbin -perm -4000 -type f 2>/dev/null
         <strong>SUID-программы игнорируют <code>LD_PRELOAD</code>.</strong> Иначе атакующий подсунул бы свою <code>.so</code> и через <code>passwd</code> стал бы рутом. Это связь со старым разделом про бинарники и динамический линкер.
       </div>
 
-      <h3>SGID на папке — единственное реальное «наследование»</h3>
+      <h4>SGID на папке — единственное реальное «наследование»</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -937,7 +934,7 @@ ls -ld /srv/teamspace
 # подкаталоги тоже становятся SGID — наследование идёт вниз по дереву.</pre>
       </div>
 
-      <h3>Sticky на <code>/tmp</code></h3>
+      <h4>Sticky на <code>/tmp</code></h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -954,7 +951,7 @@ ls -ld /srv/teamspace
 # Без sticky любой бы пощёлкал rm -rf /tmp/* и снёс чужие сессии.</pre>
       </div>
 
-      <h3>Числовая запись спецбитов</h3>
+      <h4>Числовая запись спецбитов</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -968,7 +965,7 @@ chmod 6755 file    # SUID + SGID + rwxr-xr-x</pre>
       </div>
 
       <!-- ============ ТЕМА 6: SELINUX ============ -->
-      <h2>SELinux — MAC поверх DAC (Fedora/RHEL)</h2>
+      <h3>SELinux — MAC поверх DAC (Fedora/RHEL)</h3>
       <p>На Fedora и RHEL над обычными правами сидит <strong>второй слой контроля</strong>. Точка в конце прав (<code>rw-r--r--<strong>.</strong></code>) — маркер, что у файла есть SELinux-контекст.</p>
 
       <div class="code-block">
@@ -989,7 +986,7 @@ MAC — Mandatory Access Control (SELinux)
 # почти всегда виноват SELinux.</pre>
       </div>
 
-      <h3>Самый частый случай: Docker volume на Fedora</h3>
+      <h4>Самый частый случай: Docker volume на Fedora</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1019,7 +1016,7 @@ docker run --rm -v "$PWD/data:/data:z" alpine touch /data/x
       </div>
 
       <!-- ============ ТЕМА 7: DOCKER КАПКАН ============ -->
-      <h2>Docker-капкан: файлы от root</h2>
+      <h3>Docker-капкан: файлы от root</h3>
       <p>Стандартный сценарий: <code>docker-compose up</code> поднял PostgreSQL, в смонтированной папке <code>./db/data</code> появились файлы. <code>ls -l</code> показывает <strong><code>root:root</code></strong> (или цифры <code>999:999</code>). <code>rm -rf db/data</code> падает с <code>Permission denied</code>.</p>
 
       <div class="code-block">
