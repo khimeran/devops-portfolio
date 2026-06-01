@@ -623,6 +623,451 @@ rpm -q kernel     # какие ядра УСТАНОВЛЕНЫ (Fedora хран�
       </div>
     </section>
 
+    <!-- LINUX PERMS -->
+    <section id="linux-perms">
+      <h1>🔐 Linux: права, владение, umask</h1>
+      <p>Каждый файл и папка в Linux принадлежит <strong>одному юзеру</strong> и <strong>одной группе</strong>, и для каждого из них (плюс «всех остальных») независимо настроены три права: читать, писать, выполнять. Этот блок — про то, как читать строку прав в <code>ls -l</code>, как её менять (<code>chmod</code>, <code>chown</code>, <code>chgrp</code>), откуда берутся «дефолтные» права у новых файлов (<code>umask</code>), что такое SUID/SGID/sticky, и про два капкана Fedora: SELinux и владение от <code>root</code> у файлов из контейнера.</p>
+
+      <!-- ============ ТЕМА 1: МОДЕЛЬ ============ -->
+      <h2>Модель rwx × ugo</h2>
+      <p>Linux разделяет права по трём «ролям» и трём «действиям». Это и есть знаменитые девять битов.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МОДЕЛЬ</span>
+          <span>Три роли × три действия</span>
+        </div>
+        <pre>роли:                       действия:
+  u (user)  — владелец-юзер     r (read)    — читать
+  g (group) — владелец-группа   w (write)   — писать
+  o (other) — все остальные     x (execute) — выполнять / войти
+  a (all)   — u + g + o</pre>
+      </div>
+
+      <h3>Как читать строку прав из <code>ls -l</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>-rwxr-xr--. 1 kirill devs 1240 ноя 26 14:02 deploy.sh</span>
+        </div>
+        <pre>-           тип файла (-, d, l, c, b, p, s)
+rwx         u: владелец  (читать + писать + выполнять)
+r-x         g: группа    (читать + выполнять)
+r--         o: остальные (только читать)
+.           SELinux-контекст (на Fedora; на Ubuntu точки нет)
+1           счётчик жёстких ссылок на инод
+kirill      владелец-юзер
+devs        владелец-группа
+1240        размер в байтах
+ноя 26      mtime — время последнего изменения
+deploy.sh   имя</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> у каждой роли всегда <strong>ровно три слота</strong> в фиксированном порядке <code>r-w-x</code>. Чёрточка <code>-</code> — это не «нет буквы», а <strong>«право отнято»</strong>. Длина блока прав всегда 9 символов (плюс тип файла слева).
+      </div>
+
+      <h3>На файле и на папке биты значат РАЗНОЕ</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СМЫСЛ</span>
+          <span>файл vs папка — главный подвох</span>
+        </div>
+        <pre>            файл                папка
+r           прочитать байты     увидеть СПИСОК имён (ls)
+w           изменить байты      создать / удалить / переименовать файлы
+x           запустить           ВОЙТИ (cd), обратиться к файлу по имени</pre>
+      </div>
+
+      <p>Четыре типичных режима папок — <code>r</code> и <code>x</code> на папке независимы:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PRACTICE</span>
+          <span>Проверь руками на vault/ с файлом внутри</span>
+        </div>
+        <pre>r-x   листать можно, менять нельзя       — обычная публичная папка
+r--   ls видит имена, но cat падает      — почти бесполезно
+--x   ls не работает, cat по имени — да  — «папка-сейф»
+---   полностью закрыта                  — приватная
+
+chmod 711 vault                      # --x для остальных
+sudo -u nobody ls vault/             # Permission denied
+sudo -u nobody cat vault/treasure    # читает по имени — ОК
+
+chmod 744 vault                      # r-- для остальных
+sudo -u nobody ls vault/             # имена видит
+sudo -u nobody cat vault/treasure    # Permission denied (нет x)</pre>
+      </div>
+
+      <div class="note">
+        <strong>Удалить файл = «выкинуть запись из списка» в родительской папке.</strong> Право на удаление лежит у <strong>папки</strong>, а не у файла. Если у тебя <code>w</code> на папке — ты удалишь даже <strong>чужой</strong> файл, который тебе не принадлежит и который ты не можешь редактировать. От этого защищает sticky-бит (см. ниже про <code>/tmp</code>).
+      </div>
+
+      <h3>Алгоритм проверки прав в ядре</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Первое совпадение выигрывает</span>
+        </div>
+        <pre>1. Ты владелец-юзер?      ДА → берётся блок u, дальше НЕ смотрим
+2. Ты в группе-владельце?  ДА → берётся блок g, дальше НЕ смотрим
+3. Иначе                       → берётся блок o
+4. root (UID 0)                → пропускается ВСЕГДА, проверка не делается</pre>
+      </div>
+
+      <div class="note">
+        <strong>🪤 Парадокс на собесе:</strong> <code>chmod 077 file</code> даст права <code>----rwxrwx</code>. И ты, владелец, <strong>НЕ сможешь</strong> читать этот файл (<code>Permission denied</code>), хотя у группы и остальных <code>rwx</code>. Потому что владелец подпадает под первый блок — на нём проверка останавливается. Шире права у других — не помогает.
+      </div>
+
+      <h3>В Linux расширение НЕ запускает программу</h3>
+      <p>Это самый частый миф у людей с Windows-фоном. Linux <strong>не смотрит на расширение</strong>. Файл запускается, если:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">RULE</span>
+          <span>Что нужно, чтобы файл запустился</span>
+        </div>
+        <pre>1) стоит бит x                       — ядро вообще соглашается запустить
+2) первая строка — shebang (#!...)   — ядро знает, КОМУ передать содержимое
+                                       Например: #!/bin/bash, #!/usr/bin/env python3
+
+# маркер "забыл chmod +x":
+./script.sh
+# bash: ./script.sh: Отказано в доступе (Permission denied)</pre>
+      </div>
+
+      <!-- ============ ТЕМА 2: CHMOD ============ -->
+      <h2>chmod — меняем права</h2>
+      <p>У <code>chmod</code> два эквивалентных синтаксиса: <strong>символьный</strong> (<code>u+x</code>) и <strong>числовой</strong> (<code>755</code>).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Символьная запись</span>
+        </div>
+        <pre># кому:     u user, g group, o other, a all
+# оператор: +добавить, -убрать, =выставить ровно
+# что:      r/w/x  (+ позже s/t — спецбиты)
+
+chmod +x script.sh         # +x всем сразу (с учётом umask)
+chmod u+x script.sh        # x только владельцу  → rwxr--r--
+chmod g-w file             # отобрать запись у группы
+chmod o= secret.txt        # «другим — ничего» (= o-rwx)
+chmod a+r README           # дать чтение всем
+chmod u=rwx,go=rx script   # выставить ровно — самый предсказуемый вариант</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Числовая (восьмеричная) запись</span>
+        </div>
+        <pre>chmod 755 file
+# r=4, w=2, x=1, складываем для каждой роли:
+# rwx = 4+2+1 = 7
+# rw- = 4+2   = 6
+# r-x = 4+0+1 = 5
+# r-- = 4
+# --x = 1
+# --- = 0
+
+# типовые маски, которые встретишь в Dockerfile / Ansible / SSH:
+644   rw-r--r--   обычный файл (конфиг, README)
+600   rw-------   секрет (приватный ключ SSH, .env)
+755   rwxr-xr-x   исполняемый скрипт, папка
+700   rwx------   приватная папка (~/.ssh)
+777   rwxrwxrwx   🚩 КРАСНЫЙ ФЛАГ. Никогда в проде.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Рекурсивно</strong> — флаг <code>-R</code>: <code>chmod -R 755 dir/</code>. Это разовая правка дерева, <strong>не «наследование»</strong>. Новые файлы внутри будут получать права от <code>umask</code>, а не от папки. Настоящее наследование группы — только через SGID (см. ниже).
+      </div>
+
+      <!-- ============ ТЕМА 3: CHOWN ============ -->
+      <h2>chown / chgrp — меняем владельца</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>chown — поменять юзера и/или группу</span>
+        </div>
+        <pre>chown user file             # сменить юзера
+chown user:group file       # сменить и юзера, и группу
+chown :group file           # сменить только группу (= chgrp)
+chown -R user:group dir/    # рекурсивно
+
+# самый частый кейс на проде — починить владение
+# после контейнера или после переноса данных:
+sudo chown -R "$(id -u):$(id -g)" db/data
+# $(id -u) — твой UID числом
+# $(id -g) — твой GID числом
+# подстановка надёжнее имени: работает даже если в этой системе
+# твоего юзера зовут иначе (внутри контейнера, например)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>chgrp — поменять только группу</span>
+        </div>
+        <pre>chgrp devs file
+chgrp -R devs dir/
+groups                # список твоих групп
+# группу можно менять только на ту, в которой ты сам состоишь</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ Правило безопасности:</strong> поменять <strong>юзера-владельца</strong> может <strong>только root</strong>. Обычный юзер не может ни «присвоить» чужой файл, ни «отдать» свой. Иначе любой создал бы SUID-скрипт, перевёл владельца на <code>root</code> — и эскалировал привилегии. Передача владения = операция рута.
+      </div>
+
+      <div class="note">
+        <strong>Группы юзера и зачем они:</strong> <code>id</code> покажет UID/GID и группы. На Fedora важны:
+        <br>• <code>wheel</code> — членство = возможность <code>sudo</code> (на Debian/Ubuntu роль играет группа <code>sudo</code>).
+        <br>• <code>docker</code> — можешь <code>docker run</code> без <code>sudo</code>. ⚠️ <strong>Эквивалентно root</strong>: <code>docker run -v /:/host alpine</code> даёт доступ ко всей хост-ФС. На проде дают редко и осознанно.
+      </div>
+
+      <!-- ============ ТЕМА 4: UMASK ============ -->
+      <h2>umask — дефолтные права новых файлов</h2>
+      <p><code>umask</code> — это «маска вычитания». От базового «потенциала» ядро отнимает биты <code>umask</code>, и так получаются права свежесозданного файла.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FORMULA</span>
+          <span>потенциал − umask = реальные права</span>
+        </div>
+        <pre>файл:  666 − umask = реальные права   (x по умолчанию НЕ дают — опасно)
+папка: 777 − umask = реальные права
+
+# обычный юзер на Fedora: umask 022
+файл:  666 − 022 = 644  →  rw-r--r--
+папка: 777 − 022 = 755  →  rwxr-xr-x
+
+# umask 077 — только владельцу всё, остальным ничего
+файл:  666 − 077 = 600  →  rw-------
+папка: 777 − 077 = 700  →  rwx------
+
+# umask 002 — командная папка, группа может писать
+файл:  666 − 002 = 664  →  rw-rw-r--</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Проверить и поменять</span>
+        </div>
+        <pre>umask                # 0022 — первая 0 это спецбиты, дальше u/g/o
+umask -S             # символьная форма: u=rwx,g=rx,o=rx
+umask 077            # параноидальный режим
+umask 022            # вернуть как было
+
+# где umask живёт постоянно:
+~/.bashrc                       — твой персональный umask
+/etc/profile, /etc/login.defs   — системные дефолты
+UMask= в systemd-юните          — umask для конкретного демона</pre>
+      </div>
+
+      <div class="note">
+        <strong>Типовые значения в проде:</strong> <code>022</code> — десктоп; <code>027</code> — параноидальный сервер (остальные не видят); <code>002</code> — командная папка; <code>077</code> — приватные ключи и токены. Для <code>.env</code>-файла и <code>id_rsa</code> поставь <code>chmod 600</code> вручную, не надейся на umask.
+      </div>
+
+      <!-- ============ ТЕМА 5: СПЕЦБИТЫ ============ -->
+      <h2>Спецбиты: SUID, SGID, sticky</h2>
+      <p>К девяти обычным битам добавляются три «специальных» — они меняют поведение исполнения и создания файлов. В <code>ls -l</code> показаны буквой на месте <code>x</code>:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МАРКЕРЫ</span>
+          <span>буква на месте x = спецбит</span>
+        </div>
+        <pre>позиция u (4-я)   s / S    — SUID    (запуск от ВЛАДЕЛЬЦА файла)
+позиция g (7-я)   s / S    — SGID    (на dir: новые файлы наследуют группу)
+позиция o (10-я)  t / T    — sticky  (на dir: удалить файл = только его владелец)
+
+маленькая буква = бит установлен И x тоже стоит
+большая буква   = бит установлен, но x НЕТ (обычно ошибка)</pre>
+      </div>
+
+      <h3>SUID — пример с <code>passwd</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Почему обычный юзер может поменять свой пароль</span>
+        </div>
+        <pre>ls -l /usr/bin/passwd
+# -rwsr-xr-x. 1 root root 91424 ... /usr/bin/passwd
+#    ^ маленькая 's' = SUID
+
+# /etc/shadow имеет права ---------- — никому ничего.
+# Но программа passwd должна туда писать.
+# SUID-бит говорит ядру: при запуске сделать процесс
+# от имени ВЛАДЕЛЬЦА файла (root), а не запустившего (kirill).
+
+# найти ВСЕ SUID-бинарники в системе (классика собеса по безопасности):
+find /usr/bin /usr/sbin -perm -4000 -type f 2>/dev/null
+# -perm -4000 — установлен SUID; минус = «как минимум этот бит»
+# -type f     — только файлы
+# 2>/dev/null — выбросить ошибки «нет доступа»</pre>
+      </div>
+
+      <div class="note">
+        <strong>SUID-программы игнорируют <code>LD_PRELOAD</code>.</strong> Иначе атакующий подсунул бы свою <code>.so</code> и через <code>passwd</code> стал бы рутом. Это связь со старым разделом про бинарники и динамический линкер.
+      </div>
+
+      <h3>SGID на папке — единственное реальное «наследование»</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Командная папка, где файлы наследуют группу</span>
+        </div>
+        <pre>sudo mkdir /srv/teamspace
+sudo chown root:devs /srv/teamspace
+sudo chmod 2775 /srv/teamspace       # 2 спереди = SGID
+ls -ld /srv/teamspace
+# drwxrwsr-x. root devs ...
+#       ^ s — SGID стоит
+
+# теперь любой файл, созданный внутри, получит группу devs —
+# даже если у создателя основная группа другая.
+# подкаталоги тоже становятся SGID — наследование идёт вниз по дереву.</pre>
+      </div>
+
+      <h3>Sticky на <code>/tmp</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Почему /tmp общая, но безопасная</span>
+        </div>
+        <pre>ls -ld /tmp
+# drwxrwxrwt. ...
+#         ^ t — sticky
+
+# rwx у всех = любой юзер может писать в /tmp.
+# Но t-бит ограничивает: УДАЛИТЬ файл может только его владелец
+# (или владелец папки, или root).
+# Без sticky любой бы пощёлкал rm -rf /tmp/* и снёс чужие сессии.</pre>
+      </div>
+
+      <h3>Числовая запись спецбитов</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CHMOD</span>
+          <span>4 = SUID, 2 = SGID, 1 = sticky</span>
+        </div>
+        <pre>chmod 4755 file    # SUID + rwxr-xr-x   (как passwd)
+chmod 2775 dir/    # SGID + rwxrwxr-x   (командная папка)
+chmod 1777 dir/    # sticky + rwxrwxrwx (как /tmp)
+chmod 6755 file    # SUID + SGID + rwxr-xr-x</pre>
+      </div>
+
+      <!-- ============ ТЕМА 6: SELINUX ============ -->
+      <h2>SELinux — MAC поверх DAC (Fedora/RHEL)</h2>
+      <p>На Fedora и RHEL над обычными правами сидит <strong>второй слой контроля</strong>. Точка в конце прав (<code>rw-r--r--<strong>.</strong></code>) — маркер, что у файла есть SELinux-контекст.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МОДЕЛЬ</span>
+          <span>DAC vs MAC</span>
+        </div>
+        <pre>DAC — Discretionary Access Control
+       классические rwx / u / g / o, владелец сам решает кому что дать
+       проверяется ПЕРВОЙ
+
+MAC — Mandatory Access Control (SELinux)
+       политики прописаны в системе, их НЕ обходит даже root
+       проверяется ВТОРОЙ
+
+# Если DAC разрешает, но MAC запрещает — итог: запрет.
+# Если в Fedora ты root и тебя всё равно "Permission denied" —
+# почти всегда виноват SELinux.</pre>
+      </div>
+
+      <h3>Самый частый случай: Docker volume на Fedora</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Симптом и лечение</span>
+        </div>
+        <pre># симптом: внутри контейнера Permission denied при записи в bind-mount
+docker run --rm -v "$PWD/data:/data" alpine touch /data/x
+# touch: /data/x: Permission denied   ← НЕ помогает chmod 777!
+
+# причина — SELinux-контекст: твой каталог user_home_t,
+# а контейнерному домену container_t писать в user_home_t нельзя.
+
+# проверка контекста:
+ls -Zd data/
+# unconfined_u:object_r:user_home_t:s0  data/
+
+# лечение — добавить :z к volume:
+docker run --rm -v "$PWD/data:/data:z" alpine touch /data/x
+# :z — перелейблить как container_file_t, общий контекст
+# :Z — то же, но ПРИВАТНО под этот контейнер
+#      ⚠️ НЕ ставь :Z на /etc, ~/.ssh, /var — испортит систему</pre>
+      </div>
+
+      <div class="note">
+        <strong>Подсказки для отладки:</strong> временно вырубить SELinux — <code>sudo setenforce 0</code>; вернуть — <code>sudo setenforce 1</code>; посмотреть последние блокировки — <code>sudo ausearch -m AVC -ts recent</code>. На Ubuntu роль SELinux играет AppArmor — симптомы похожие, лечение другое.
+      </div>
+
+      <!-- ============ ТЕМА 7: DOCKER КАПКАН ============ -->
+      <h2>Docker-капкан: файлы от root</h2>
+      <p>Стандартный сценарий: <code>docker-compose up</code> поднял PostgreSQL, в смонтированной папке <code>./db/data</code> появились файлы. <code>ls -l</code> показывает <strong><code>root:root</code></strong> (или цифры <code>999:999</code>). <code>rm -rf db/data</code> падает с <code>Permission denied</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПОЧЕМУ</span>
+          <span>Ядру плевать на «контейнер»</span>
+        </div>
+        <pre>1. Внутри alpine по умолчанию ты root (UID 0).
+2. Docker namespaces изолируют процессы, но НЕ UID.
+   UID 0 в контейнере = UID 0 на хосте (если не настроен userns-remap).
+3. Файл, созданный процессом, получает владельцем UID этого процесса.
+4. На хосте ты видишь файлы от root:root — это и есть твой процесс UID 0.
+
+# в случае официального postgres-образа создаётся внутренний юзер
+# с UID 999 — поэтому на хосте файлы будут принадлежать "999:999"
+# (имени для этого UID на хосте нет, ls покажет цифры).</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX</span>
+          <span>Четыре способа</span>
+        </div>
+        <pre>1. chown -R после факта (костыль, но работает)
+   sudo chown -R "$(id -u):$(id -g)" db/data
+
+2. флаг --user в docker run
+   docker run --user "$(id -u):$(id -g)" -v "$PWD/data:/data:z" alpine ...
+   + просто
+   - внутри контейнера UID может не иметь имени → whoami падает
+
+3. USER в Dockerfile (правильный путь для прод-образов)
+   FROM python:3.12-slim
+   RUN useradd -u 10001 -m appuser
+   USER appuser
+   CMD ["python", "app.py"]
+
+4. Rootless Docker / Podman (современный путь)
+   Демон работает от твоего юзера, userns-remap:
+   "root внутри" = твой UID снаружи.
+   Podman на Fedora — рутлесс из коробки, капкана нет.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> 9 битов <code>rwxrwxrwx</code> делятся на u/g/o; на файле и папке смысл разный; ядро берёт ОДИН блок (u → g → o, первое совпадение); root проходит мимо проверки; SUID/SGID/sticky — спецбиты с числами 4/2/1; <code>umask</code> = маска вычитания для дефолтных прав; на Fedora поверх DAC сидит SELinux — лечится <code>:z</code> в Docker; <code>chown</code> от не-рута менять юзера-владельца не может. Эти восемь пунктов закрывают 95% вопросов по правам на собесе джуна DevOps.
+      </div>
+    </section>
+
     <!-- GIT -->
     <section id="git">
       <h1>Git — система контроля версий</h1>
