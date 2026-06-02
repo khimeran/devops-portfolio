@@ -1063,18 +1063,16 @@ docker run --rm -v "$PWD/data:/data:z" alpine touch /data/x
       <div class="note">
         <strong>Итог темы:</strong> 9 битов <code>rwxrwxrwx</code> делятся на u/g/o; на файле и папке смысл разный; ядро берёт ОДИН блок (u → g → o, первое совпадение); root проходит мимо проверки; SUID/SGID/sticky — спецбиты с числами 4/2/1; <code>umask</code> = маска вычитания для дефолтных прав; на Fedora поверх DAC сидит SELinux — лечится <code>:z</code> в Docker; <code>chown</code> от не-рута менять юзера-владельца не может. Эти восемь пунктов закрывают 95% вопросов по правам на собесе джуна DevOps.
       </div>
-    </section>
 
-    <!-- PROCESSES & SYSTEMD -->
-    <section id="processes">
-      <h1>📦 Процессы и systemd</h1>
-      <p>Всё, что бежит на Linux-сервере — это процесс. Всё, чем управляет сисадмин или DevOps — это сервис (то есть процесс под systemd). Этот блок — про модель процессов (PID, PPID, fork+exec), мониторинг (<code>ps</code>, <code>top</code>, <code>htop</code>), сигналы, особенности PID 1 в Docker, и systemd целиком — юниты, <code>systemctl</code>, <code>journalctl</code>, написание своего <code>.service</code>-файла.</p>
+      <!-- ============ ТЕМА 4: ПРОЦЕССЫ И SYSTEMD ============ -->
+      <h2>Процессы и systemd</h2>
+      <p>Четвёртая большая тема: всё, что бежит на Linux — это процесс, а всё, чем управляет DevOps — это сервис под systemd. Здесь модель процессов (PID, PPID, fork+exec), мониторинг (<code>ps</code>, <code>top</code>, <code>htop</code>), сигналы, особенности PID 1 в Docker, и systemd целиком — юниты, <code>systemctl</code>, <code>journalctl</code>, написание своего <code>.service</code>-файла.</p>
 
-      <!-- ============ ТЕМА 1: ПРОЦЕССЫ ============ -->
-      <h2>Процессы: что это и как смотреть</h2>
+      <!-- ============ ПОДТЕМА: ПРОЦЕССЫ ============ -->
+      <h3>Процессы: что это и как смотреть</h3>
       <p><strong>Программа</strong> — это файл на диске (ELF-бинарник). <strong>Процесс</strong> — это запущенный экземпляр программы в памяти со своим PID, состоянием, открытыми файлами, кусочком памяти. Из одного бинарника можно одновременно запустить сколько угодно процессов.</p>
 
-      <h3>PID, PPID и дерево процессов</h3>
+      <h4>PID, PPID и дерево процессов</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1093,7 +1091,7 @@ echo "мой PID:  $$"
 ps -p $$ -o pid,ppid,user,stat,cmd</pre>
       </div>
 
-      <h3>fork + exec — как создаются процессы</h3>
+      <h4>fork + exec — как создаются процессы</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1113,7 +1111,7 @@ ps -p $$ -o pid,ppid,user,stat,cmd</pre>
 # (запись в таблице процессов, но ресурсов не ест).</pre>
       </div>
 
-      <h3>pstree — родословная процесса</h3>
+      <h4>pstree — родословная процесса</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1137,7 +1135,7 @@ ps -p $$ -o pid,ppid,user,stat,cmd</pre>
         <strong>Два уровня systemd:</strong> PID 1 — <strong>системный</strong> systemd (один на машину), а <code>systemd --user</code> — <strong>пользовательский</strong> (по одному на каждого залогиненного юзера). Запомни на собес: «systemd работает на двух уровнях — system и user».
       </div>
 
-      <h3>ps aux — снимок всех процессов</h3>
+      <h4>ps aux — снимок всех процессов</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1172,7 +1170,7 @@ s   session leader
         <strong>Имя процесса в [квадратных скобках]</strong> в <code>ps aux</code> означает <strong>kernel thread</strong> — поток ядра, не пользовательский процесс. У них VSZ/RSS = 0 (живут в адресном пространстве ядра), нельзя дебажить и убивать обычным <code>kill</code>. Пример: <code>[kthreadd]</code> (PID 2) — «отец всех kernel threads».
       </div>
 
-      <h3>top и htop — живой мониторинг</h3>
+      <h4>top и htop — живой мониторинг</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1218,7 +1216,7 @@ q    выйти
       </div>
 
       <!-- ============ ТЕМА 2: СИГНАЛЫ И KILL ============ -->
-      <h2>Сигналы и kill</h2>
+      <h3>Сигналы и kill</h3>
       <p>Сигнал — это «постучали в окошко» от ядра процессу. Процесс может зарегистрировать обработчик, или будет применено действие по умолчанию (обычно — завершение). Команда <code>kill</code> посылает сигнал, не обязательно убивает.</p>
 
       <div class="code-block">
@@ -1269,7 +1267,7 @@ kill -KILL $PID 2>/dev/null   # если ещё жив — добей
       </div>
 
       <!-- ============ ТЕМА 3: PID 1 В DOCKER ============ -->
-      <h2>PID 1 в Docker — главный капкан</h2>
+      <h3>PID 1 в Docker — главный капкан</h3>
       <p>Внутри контейнера первый процесс получает <strong>PID 1</strong> — как systemd в системе. И ядро относится к нему по-особому: <strong>сигналы без обработчиков просто игнорируются</strong>. Поэтому «обычное приложение как PID 1» — это бомба замедленного действия.</p>
 
       <div class="code-block">
@@ -1290,7 +1288,7 @@ kill -KILL $PID 2>/dev/null   # если ещё жив — добей
    получает SIGTERM от Docker и ПРОСТО ЕГО НЕ ВИДИТ.</pre>
       </div>
 
-      <h3>Симптом: docker stop ждёт 10 секунд</h3>
+      <h4>Симптом: docker stop ждёт 10 секунд</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1306,7 +1304,7 @@ kill -KILL $PID 2>/dev/null   # если ещё жив — добей
 # На проде это = недописанные транзакции, висячие коннекты, обрезанные логи.</pre>
       </div>
 
-      <h3>Три способа лечения</h3>
+      <h4>Три способа лечения</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1368,10 +1366,10 @@ CMD ["python", "app.py"]
       </div>
 
       <!-- ============ ТЕМА 4: SYSTEMD ============ -->
-      <h2>systemd: юниты и systemctl</h2>
+      <h3>systemd: юниты и systemctl</h3>
       <p>systemd — это init-система (PID 1) и менеджер сервисов на большинстве современных Linux. Заменил SysV-init (bash-скрипты в /etc/init.d/). Даёт параллельный старт, автоперезапуск, централизованные логи, cgroups для изоляции ресурсов.</p>
 
-      <h3>Юниты и их типы</h3>
+      <h4>Юниты и их типы</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1386,7 +1384,7 @@ CMD ["python", "app.py"]
 .path      следить за файлом/папкой, реагировать на изменения</pre>
       </div>
 
-      <h3>Где живут юнит-файлы</h3>
+      <h4>Где живут юнит-файлы</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1407,7 +1405,7 @@ sudo systemctl edit nginx
 # создаст override в /etc/systemd/system/nginx.service.d/override.conf</pre>
       </div>
 
-      <h3>Структура .service-файла</h3>
+      <h4>Структура .service-файла</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1459,7 +1457,7 @@ on-failure      ⭐ ИСПОЛЬЗУЙ ЭТО — рестарт при сбое
 always          даже при штатном выходе</pre>
       </div>
 
-      <h3>Команды systemctl</h3>
+      <h4>Команды systemctl</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1490,7 +1488,7 @@ sudo systemctl daemon-reload</pre>
         <strong>⚠️ Главная ловушка systemd:</strong> когда ты редактируешь <code>.service</code>-файл вручную, systemd <strong>сам об этом не узнаёт</strong>. Юниты кэшированы в памяти. Без <code>systemctl daemon-reload</code> <code>restart</code> поднимет сервис со старым (битым) содержимым. <code>systemctl edit</code> делает reload автоматически — это предпочтительный способ правки.
       </div>
 
-      <h3>journalctl — единый лог системы</h3>
+      <h4>journalctl — единый лог системы</h4>
 
       <div class="code-block">
         <div class="code-header">
@@ -1533,7 +1531,7 @@ sudo journalctl --vacuum-time=7d      # хранить 7 дней</pre>
       </div>
 
       <!-- ============ ТЕМА 5: СВОЙ .SERVICE ============ -->
-      <h2>Свой .service: docker-compose стек под systemd</h2>
+      <h3>Свой .service: docker-compose стек под systemd</h3>
       <p>Реальный паттерн на сервере: твой проект описан в <code>docker-compose.yml</code>. Чтобы он запускался при загрузке сервера, перезапускался при падении и логировался в journal — оборачиваем в systemd-юнит.</p>
 
       <div class="code-block">
