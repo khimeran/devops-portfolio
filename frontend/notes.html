@@ -1065,6 +1065,540 @@ docker run --rm -v "$PWD/data:/data:z" alpine touch /data/x
       </div>
     </section>
 
+    <!-- PROCESSES & SYSTEMD -->
+    <section id="processes">
+      <h1>📦 Процессы и systemd</h1>
+      <p>Всё, что бежит на Linux-сервере — это процесс. Всё, чем управляет сисадмин или DevOps — это сервис (то есть процесс под systemd). Этот блок — про модель процессов (PID, PPID, fork+exec), мониторинг (<code>ps</code>, <code>top</code>, <code>htop</code>), сигналы, особенности PID 1 в Docker, и systemd целиком — юниты, <code>systemctl</code>, <code>journalctl</code>, написание своего <code>.service</code>-файла.</p>
+
+      <!-- ============ ТЕМА 1: ПРОЦЕССЫ ============ -->
+      <h2>Процессы: что это и как смотреть</h2>
+      <p><strong>Программа</strong> — это файл на диске (ELF-бинарник). <strong>Процесс</strong> — это запущенный экземпляр программы в памяти со своим PID, состоянием, открытыми файлами, кусочком памяти. Из одного бинарника можно одновременно запустить сколько угодно процессов.</p>
+
+      <h3>PID, PPID и дерево процессов</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Каждый процесс знает своего родителя</span>
+        </div>
+        <pre>PID   — уникальный номер процесса в системе (выдаёт ядро)
+PPID  — Parent PID, PID родительского процесса
+
+# В Linux ЛЮБОЙ процесс (кроме PID 1) имеет родителя.
+# Новый процесс создаётся ТОЛЬКО через fork() от существующего.
+# PID 1 — это init-процесс (systemd на современных дистрах).
+# Все остальные — его потомки.
+
+echo "мой PID:  $$"
+ps -p $$ -o pid,ppid,user,stat,cmd</pre>
+      </div>
+
+      <h3>fork + exec — как создаются процессы</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Что делает шелл, когда ты набираешь команду</span>
+        </div>
+        <pre>1. bash делает fork() → появляется КОПИЯ bash с новым PID
+2. копия делает exec("/usr/bin/ls") → её код заменяется на код ls
+3. PID сохраняется, но теперь это процесс ls
+4. ls работает, печатает файлы
+5. ls завершается → ядро шлёт родителю SIGCHLD
+6. bash забирает статус через wait() → освобождает запись в таблице
+7. bash возвращает приглашение $
+
+# Если родитель умер РАНЬШЕ детей — детей усыновляет PID 1.
+# Если родитель не вызвал wait() для мёртвого ребёнка — остаётся ЗОМБИ
+# (запись в таблице процессов, но ресурсов не ест).</pre>
+      </div>
+
+      <h3>pstree — родословная процесса</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Цепочка предков от текущего процесса до PID 1</span>
+        </div>
+        <pre>pstree -psa $$
+# -p — показать PID
+# -s — показать предков (от $$ до PID 1)
+# -a — показать аргументы запуска
+
+# пример вывода:
+# systemd,1
+#   └─systemd,2618 --user
+#       └─code,18964
+#           └─bash,19245
+#               └─bash,61348 ← наш текущий шелл</pre>
+      </div>
+
+      <div class="note">
+        <strong>Два уровня systemd:</strong> PID 1 — <strong>системный</strong> systemd (один на машину), а <code>systemd --user</code> — <strong>пользовательский</strong> (по одному на каждого залогиненного юзера). Запомни на собес: «systemd работает на двух уровнях — system и user».
+      </div>
+
+      <h3>ps aux — снимок всех процессов</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Колонки и их значения</span>
+        </div>
+        <pre>ps aux | head -10
+
+USER  PID  %CPU  %MEM  VSZ  RSS  TTY  STAT  START  TIME  COMMAND
+                       ↑    ↑          ↑
+                       │    │          └─ состояние (см. ниже)
+                       │    └─ Resident Set Size — РЕАЛЬНАЯ RAM в KB
+                       │                          (главная метрика памяти)
+                       └─ Virtual Size — адресное пространство
+                                         (часто большое, не пугайся)
+
+# STAT-коды:
+R   running   — крутится на CPU прямо сейчас
+S   sleeping  — спит, ждёт событие (90% процессов)
+D   uninterruptible — ждёт I/O, kill -9 НЕ убьёт
+Z   zombie    — труп без вести пропавшего родителя
+T   stopped   — Ctrl+Z
+I   idle      — простаивает (kernel thread)
+
+# модификаторы:
+s   session leader
++   foreground в терминале
+<   высокий приоритет</pre>
+      </div>
+
+      <div class="note">
+        <strong>Имя процесса в [квадратных скобках]</strong> в <code>ps aux</code> означает <strong>kernel thread</strong> — поток ядра, не пользовательский процесс. У них VSZ/RSS = 0 (живут в адресном пространстве ядра), нельзя дебажить и убивать обычным <code>kill</code>. Пример: <code>[kthreadd]</code> (PID 2) — «отец всех kernel threads».
+      </div>
+
+      <h3>top и htop — живой мониторинг</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Шапка top: load average</span>
+        </div>
+        <pre>top
+# или
+htop          # нужно поставить: sudo dnf install htop
+
+# === ВЕРХНЯЯ СТРОКА ===
+top - 14:23:55 up 5 days, 6:21, 3 users, load average: 0.42, 0.55, 0.50
+                                                       ↑    ↑    ↑
+                                            за 1 мин, 5 мин, 15 мин
+
+# load average = средняя длина очереди процессов на CPU + ждущих диск
+# Сравнивай с числом ядер: nproc
+# load < ядер     → свободно
+# load = ядрам    → 100% загрузки
+# load > 2*ядер   → ⚠️ перегрузка, лагает
+
+# === CPU ===
+%Cpu(s): 3.2 us, 1.1 sy, 0.0 ni, 95.6 id, 0.1 wa, 0.0 hi, 0.0 si, 0.0 st
+         ↑       ↑                ↑       ↑                       ↑
+         user-   kernel-          idle    iowait  ⚠️             steal
+         space   space            simulator (диск)               (отняли в VM)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">KEYS</span>
+          <span>Полезные клавиши прямо в top</span>
+        </div>
+        <pre>M    сортировать по %MEM (главное при «жрёт память»)
+P    сортировать по %CPU (по умолчанию)
+1    показать все ядра отдельно
+c    короткое vs полное имя команды
+u    фильтр по юзеру (спросит имя)
+k    послать сигнал процессу (интерактивный kill)
+q    выйти
+
+# htop удобнее: F5 — дерево процессов, F9 — меню сигналов, мышь работает.</pre>
+      </div>
+
+      <!-- ============ ТЕМА 2: СИГНАЛЫ И KILL ============ -->
+      <h2>Сигналы и kill</h2>
+      <p>Сигнал — это «постучали в окошко» от ядра процессу. Процесс может зарегистрировать обработчик, или будет применено действие по умолчанию (обычно — завершение). Команда <code>kill</code> посылает сигнал, не обязательно убивает.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ТАБЛИЦА</span>
+          <span>Главные 5 сигналов на собес</span>
+        </div>
+        <pre>№   имя         действие             когда шлют
+─────────────────────────────────────────────────────────────────
+1   SIGHUP      terminate            «трубку повесили»: терминал закрыт
+                                     демоны это перехватывают и
+                                     ПЕРЕЧИТЫВАЮТ конфиг (nginx, sshd)
+2   SIGINT      terminate            Ctrl+C
+9   SIGKILL     terminate насильно   ⚠️ нельзя поймать или проигнорить
+15  SIGTERM     terminate            «остановись по-хорошему» — дефолт kill
+17  SIGCHLD     ignore               у тебя умер ребёнок, забери статус
+
+# полный список:
+kill -l</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Синтаксис kill</span>
+        </div>
+        <pre>kill PID              # = kill -15 PID = kill -TERM PID
+kill -9 PID           # = kill -KILL PID                  (насильно)
+kill -STOP PID        # заморозить
+kill -CONT PID        # разморозить
+kill -HUP PID         # перечитай конфиг
+
+# имя и номер взаимозаменяемы
+# на проде лучше именами (kill -HUP nginx) — читается понятнее
+
+# === ПО ИМЕНИ, А НЕ ПО PID ===
+pkill nginx           # послать TERM всем nginx'ам
+pkill -HUP nginx      # послать HUP всем nginx'ам
+pgrep -a python       # найти PID + cmdline всех питонов
+killall firefox       # как pkill, но на BSD/macOS делает ДРУГОЕ
+
+# === ЗОЛОТОЕ ПРАВИЛО ОСТАНОВКИ ===
+kill -TERM $PID       # вежливо
+sleep 10              # дай время сохраниться
+kill -KILL $PID 2>/dev/null   # если ещё жив — добей
+
+# Именно это делает systemd и `docker stop`.</pre>
+      </div>
+
+      <!-- ============ ТЕМА 3: PID 1 В DOCKER ============ -->
+      <h2>PID 1 в Docker — главный капкан</h2>
+      <p>Внутри контейнера первый процесс получает <strong>PID 1</strong> — как systemd в системе. И ядро относится к нему по-особому: <strong>сигналы без обработчиков просто игнорируются</strong>. Поэтому «обычное приложение как PID 1» — это бомба замедленного действия.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПРАВИЛА PID 1</span>
+          <span>То, что обычные процессы НЕ обязаны делать</span>
+        </div>
+        <pre>1. Хоронить осиротевших детей (reap zombies)
+   Если родитель умер раньше детей — дети усыновляются PID 1.
+   PID 1 ОБЯЗАН их хоронить через wait().
+
+2. Принимать SIGTERM при остановке
+   Ядро шлёт SIGTERM системе через PID 1, ждёт корректного выхода.
+
+3. ⚠️ Игнорировать сигналы без обработчика
+   Защита от случайного самоубийства init'а.
+   Это и есть КАПКАН: твой python без signal.signal(SIGTERM, ...)
+   получает SIGTERM от Docker и ПРОСТО ЕГО НЕ ВИДИТ.</pre>
+      </div>
+
+      <h3>Симптом: docker stop ждёт 10 секунд</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Что происходит при docker stop</span>
+        </div>
+        <pre>0.0 s   docker stop → SIGTERM процессу PID 1 контейнера
+0.0 s   ядро видит: обработчика нет → сигнал ПРОИГНОРИРОВАН
+0-10 s  Docker daemon ждёт «вежливый» grace period (по умолчанию 10s)
+10.0 s  терпение кончилось → SIGKILL (-9)
+10.0 s  ядро убивает БЕЗ предупреждения, ничего не сохраняется
+
+# На проде это = недописанные транзакции, висячие коннекты, обрезанные логи.</pre>
+      </div>
+
+      <h3>Три способа лечения</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX 1</span>
+          <span>docker run --init — самый ленивый</span>
+        </div>
+        <pre>docker run --init -v $PWD:/app python:3.12-slim python app.py
+# или в docker-compose.yml:
+#   services:
+#     backend:
+#       init: true
+
+# Docker вставит крошечный tini (~20 КБ) как PID 1,
+# твоё приложение получит PID 2.
+# tini умеет: reap zombies + forward сигналы детям.
+# docker stop → 0.2 секунды вместо 10.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX 2</span>
+          <span>Signal handler в приложении (production way)</span>
+        </div>
+        <pre>import signal
+import sys
+
+def shutdown(signum, frame):
+    print(f"got signal {signum}, shutting down nicely", flush=True)
+    # тут закрыть БД-коннекты, сбросить буферы и т.д.
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
+
+# теперь docker stop → ~0.2 секунды + аккуратное завершение</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX 3</span>
+          <span>Exec form vs Shell form в Dockerfile</span>
+        </div>
+        <pre># ❌ SHELL FORM — оборачивает в /bin/sh -c '...'
+CMD python app.py
+# реально: /bin/sh -c 'python app.py'
+# PID 1 = sh, который НЕ форвардит сигналы детям → 10 секунд!
+
+# ✅ EXEC FORM — запускается напрямую
+CMD ["python", "app.py"]
+# PID 1 = python (всё ещё нужен signal handler, но хотя бы без sh-обёртки)
+
+# Bash имеет оптимизацию: `bash -c "single_cmd"` экзекает себя
+# и СТАНОВИТСЯ единым процессом с PID 1.
+# А `sh -c "..."` обычно НЕ оптимизируется → sh остаётся жить как обёртка.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни на собес:</strong> 1) <code>docker stop</code> шлёт SIGTERM, через 10 сек — SIGKILL. 2) SIGKILL нельзя поймать. 3) PID 1 без обработчика SIGTERM = 10-секундная задержка остановки + потерянные данные. 4) Лечится <code>--init</code>, signal-handler, либо STOPSIGNAL в Dockerfile.
+      </div>
+
+      <!-- ============ ТЕМА 4: SYSTEMD ============ -->
+      <h2>systemd: юниты и systemctl</h2>
+      <p>systemd — это init-система (PID 1) и менеджер сервисов на большинстве современных Linux. Заменил SysV-init (bash-скрипты в /etc/init.d/). Даёт параллельный старт, автоперезапуск, централизованные логи, cgroups для изоляции ресурсов.</p>
+
+      <h3>Юниты и их типы</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ТИПЫ</span>
+          <span>Что бывает (99% времени — .service)</span>
+        </div>
+        <pre>.service   сервис/демон: nginx.service, postgresql.service
+.socket    слушает порт, поднимает .service при подключении
+.mount     точка монтирования (альтернатива /etc/fstab)
+.timer     запуск по расписанию (замена cron)
+.target    «уровень загрузки»: multi-user.target, graphical.target
+.path      следить за файлом/папкой, реагировать на изменения</pre>
+      </div>
+
+      <h3>Где живут юнит-файлы</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATHS</span>
+          <span>По приоритету: низ переопределяет верх</span>
+        </div>
+        <pre>/usr/lib/systemd/system/    ← от ПАКЕТОВ (dnf install nginx)
+                              НЕ редактируй — обновление пакета затрёт
+
+/etc/systemd/system/        ← ⭐ ТВОИ юниты + переопределения
+                              сюда кладёшь свои .service-файлы
+
+~/.config/systemd/user/     ← пользовательские (systemctl --user)
+                              запускаются от твоего имени, без sudo
+
+# /etc всегда побеждает /usr/lib — тюнить чужие сервисы можно так:
+sudo systemctl edit nginx
+# создаст override в /etc/systemd/system/nginx.service.d/override.conf</pre>
+      </div>
+
+      <h3>Структура .service-файла</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">INI</span>
+          <span>Три секции — Unit, Service, Install</span>
+        </div>
+        <pre>[Unit]                                ← МЕТАДАННЫЕ + ЗАВИСИМОСТИ
+Description=My App
+After=network.target docker.service   ← порядок (не зависимость)
+Wants=network-online.target           ← «хочу но переживу»
+Requires=docker.service               ← жёстко: упал он — упаду я
+
+[Service]                             ← КАК ЗАПУСКАТЬ
+Type=simple                           ← модель жизни (см. ниже)
+ExecStart=/usr/bin/myapp --foo        ← ⭐ команда (абсолютный путь!)
+ExecStop=/usr/bin/myapp stop          ← (если не указано — SIGTERM)
+ExecReload=/bin/kill -HUP $MAINPID    ← для systemctl reload
+User=appuser                          ← НЕ root (важно!)
+WorkingDirectory=/opt/myapp
+EnvironmentFile=/etc/myapp.env        ← переменные из файла
+Restart=on-failure                    ← ⭐ автоперезапуск
+RestartSec=5                          ← подождать 5 сек перед рестартом
+TimeoutStopSec=30                     ← макс. время на остановку
+
+[Install]                             ← АВТОЗАПУСК
+WantedBy=multi-user.target            ← без этого `enable` не работает</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ВАЖНО</span>
+          <span>Параметр Type=</span>
+        </div>
+        <pre>simple     процесс просто бежит, systemd сразу считает «запущен»
+           (90% самописных сервисов)
+
+forking    процесс форкает ребёнка и ВЫХОДИТ (старый стиль)
+           systemd ловит PID ребёнка через PIDFile=
+
+oneshot    отработал и вышел — это норма
+           часто с RemainAfterExit=yes (для миграций, инициализации)
+
+notify     процесс отправляет systemd сигнал «готов» через sd_notify()
+           (dockerd, postgresql)
+
+# Restart=:
+no              никогда (по умолчанию)
+on-failure      ⭐ ИСПОЛЬЗУЙ ЭТО — рестарт при сбое
+always          даже при штатном выходе</pre>
+      </div>
+
+      <h3>Команды systemctl</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Управление сервисами</span>
+        </div>
+        <pre>sudo systemctl start  myapp           # запустить
+sudo systemctl stop   myapp           # остановить
+sudo systemctl restart myapp          # stop + start
+sudo systemctl reload myapp           # ⭐ перечитать конфиг БЕЗ перезапуска
+
+sudo systemctl enable  myapp          # включить автозапуск
+sudo systemctl disable myapp          # выключить
+sudo systemctl enable --now myapp     # ⭐ enable + start одной командой
+
+systemctl status   myapp              # ⭐ первый шаг при «всё сломалось»
+systemctl is-active   myapp           # active / inactive / failed (для скриптов)
+systemctl is-enabled  myapp
+systemctl cat      myapp              # реальное содержимое юнит-файла
+systemctl edit     myapp              # ⭐ правильная правка (override + daemon-reload)
+systemctl list-dependencies myapp     # дерево зависимостей
+
+# ⚠️ ОБЯЗАТЕЛЬНО после ручной правки .service-файла:
+sudo systemctl daemon-reload</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ Главная ловушка systemd:</strong> когда ты редактируешь <code>.service</code>-файл вручную, systemd <strong>сам об этом не узнаёт</strong>. Юниты кэшированы в памяти. Без <code>systemctl daemon-reload</code> <code>restart</code> поднимет сервис со старым (битым) содержимым. <code>systemctl edit</code> делает reload автоматически — это предпочтительный способ правки.
+      </div>
+
+      <h3>journalctl — единый лог системы</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Самые частые команды</span>
+        </div>
+        <pre># === ПО СЕРВИСУ ===
+journalctl -u myapp                   # все логи myapp за всё время
+journalctl -u myapp -n 50             # последние 50 строк
+journalctl -u myapp -n 50 -r          # последние 50, СВЕЖИЕ СВЕРХУ
+journalctl -u myapp -f                # ⭐ live tail (как tail -f), Ctrl+C
+
+# === ВРЕМЕННЫЕ ОКНА ===
+journalctl -u myapp --since "10 min ago"
+journalctl -u myapp --since today
+journalctl -u myapp --since "2026-06-02 14:00" --until "2026-06-02 15:00"
+
+# === ПО ПРИОРИТЕТУ ===
+journalctl -p err                     # только ошибки и выше
+journalctl -p warning -u myapp
+# уровни: emerg(0) alert(1) crit(2) err(3) warning(4) notice(5) info(6) debug(7)
+
+# === ЯДРО ===
+journalctl -k                         # сообщения ядра (как dmesg)
+journalctl -k -p err -b               # ошибки ядра за ТЕКУЩИЙ boot
+
+# === BOOT'Ы ===
+journalctl --list-boots               # список загрузок
+journalctl -b                         # логи текущего boot'а
+journalctl -b -1                      # ПРЕДЫДУЩИЙ boot (для разбора крашей)
+
+# === ДИСК ===
+journalctl --disk-usage
+sudo journalctl --vacuum-size=500M    # сжать до 500 МБ
+sudo journalctl --vacuum-time=7d      # хранить 7 дней</pre>
+      </div>
+
+      <div class="note">
+        <strong>Магия журнала:</strong> сервис просто пишет в <code>stdout</code>/<code>stderr</code>, а systemd-journald автоматически захватывает вывод. <strong>Никакой настройки логгера в коде не нужно</strong>. Это работает для любого <code>.service</code>-файла. На проде вместе с этим часто ставят <code>journal → Loki</code> или <code>journal → Vector → Elastic</code>, но локально достаточно <code>journalctl</code>.
+      </div>
+
+      <!-- ============ ТЕМА 5: СВОЙ .SERVICE ============ -->
+      <h2>Свой .service: docker-compose стек под systemd</h2>
+      <p>Реальный паттерн на сервере: твой проект описан в <code>docker-compose.yml</code>. Чтобы он запускался при загрузке сервера, перезапускался при падении и логировался в journal — оборачиваем в systemd-юнит.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">UNIT</span>
+          <span>/etc/systemd/system/portfolio.service</span>
+        </div>
+        <pre>[Unit]
+Description=DevOps Portfolio Stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/kirill/devops-portfolio
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=5
+User=kirill
+
+[Install]
+WantedBy=multi-user.target</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>Что зачем</span>
+        </div>
+        <pre>After=docker.service        ждать поднятия Docker'а перед стартом
+Requires=docker.service     если Docker упадёт — мы тоже падаем
+WorkingDirectory=           docker compose ищет yml относительно cwd
+ExecStart=docker compose up — главная команда (НЕ -d, чтобы systemd
+                             видел процесс и мог следить за ним)
+ExecStop=docker compose down — корректная остановка контейнеров
+User=kirill                 — стек крутится от твоего юзера,
+                             файлы НЕ будут root:root на хосте
+Restart=on-failure          — если упадёт — поднять через 5 сек
+WantedBy=multi-user.target  — запускать при загрузке системы</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Регистрация и запуск</span>
+        </div>
+        <pre>sudo tee /etc/systemd/system/portfolio.service > /dev/null <<'EOF'
+... содержимое выше ...
+EOF
+
+sudo systemctl daemon-reload          # перечитать юниты
+sudo systemctl start portfolio        # запустить
+systemctl status portfolio            # проверить
+sudo journalctl -u portfolio -f       # смотреть логи стека в реальном времени
+
+# когда дошли до прода:
+sudo systemctl enable --now portfolio # автозапуск при boot</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> процесс — это запущенная программа с PID. <code>ps</code>/<code>top</code>/<code>htop</code> — три способа посмотреть. <code>kill</code> шлёт сигналы (TERM = вежливо, KILL = насильно). PID 1 в Docker — особенный, без обработчика SIGTERM <code>docker stop</code> ждёт 10 сек. Лечится <code>--init</code> или signal handler. systemd управляет сервисами через юниты в <code>/etc/systemd/system/</code>; <code>systemctl</code> для управления, <code>journalctl</code> для логов. После любой правки юнита — <code>daemon-reload</code>. <code>Restart=on-failure</code> заменяет <code>pm2</code>/<code>supervisord</code>/<code>forever</code> одной строкой.
+      </div>
+    </section>
+
     <!-- GIT -->
     <section id="git">
       <h1>Git — система контроля версий</h1>
@@ -3342,6 +3876,130 @@ crontab -e
 
 # Проверить список задач:
 crontab -l</pre>
+      </div>
+
+      <h2>systemd на проде — главные приёмы</h2>
+      <p>Самые частые ситуации, в которых DevOps использует systemd на боевом сервере.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DIAG</span>
+          <span>Что-то сломалось — первое движение</span>
+        </div>
+        <pre>systemctl status  &lt;сервис&gt;       # 70% инцидентов закрываются ЗДЕСЬ
+                                  # видно: жив/мёртв, когда упал, хвост логов
+
+journalctl -u &lt;сервис&gt; -n 100 -r  # последние 100 строк, свежие сверху
+journalctl -u &lt;сервис&gt; -p err     # только ошибки
+journalctl -u &lt;сервис&gt; --since "1 hour ago"
+journalctl -u &lt;сервис&gt; -f         # live tail, чтобы поймать момент
+
+systemctl list-units --state=failed   # все упавшие сервисы на сервере</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">RELOAD</span>
+          <span>Корректное обновление конфига без даунтайма</span>
+        </div>
+        <pre># БОЛЬШИНСТВО сервисов умеют reload:
+sudo systemctl reload nginx       # перечитать конфиг без обрыва соединений
+sudo systemctl reload sshd        # перечитать sshd_config
+
+# reload работает, ТОЛЬКО если в .service есть ExecReload=
+# проверить:
+systemctl cat nginx | grep -i reload
+
+# если сервис не умеет reload — есть только restart (с обрывом):
+sudo systemctl restart myapp</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EDIT</span>
+          <span>Правильная правка чужого юнита</span>
+        </div>
+        <pre># НЕ редактируй файл в /usr/lib/systemd/system/ напрямую —
+# при обновлении пакета он будет затёрт.
+
+# Вместо этого — override:
+sudo systemctl edit nginx
+# откроет редактор, сохрани туда ТОЛЬКО изменения:
+# [Service]
+# Restart=on-failure
+# RestartSec=2
+
+# Override сохранится в /etc/systemd/system/nginx.service.d/override.conf
+# и automatic daemon-reload + рестарт сервиса.
+# Изменения переживут обновление пакета.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TIMER</span>
+          <span>systemd-timer как замена cron</span>
+        </div>
+        <pre># Современная альтернатива cron'у — пара юнитов:
+# /etc/systemd/system/backup.service — что запускать (Type=oneshot)
+# /etc/systemd/system/backup.timer   — когда запускать
+
+# backup.timer:
+[Unit]
+Description=Daily backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00    # каждый день в 2:00
+Persistent=true              # если машина была выключена — догнать запуск
+Unit=backup.service
+
+[Install]
+WantedBy=timers.target
+
+# Преимущества над cron:
+# + Логи в journalctl (cron логирует в /var/log/cron, не везде удобно)
+# + Persistent=true — догон пропущенных запусков (cron этого не умеет)
+# + Зависимости через After=/Requires=
+# + Случайный сдвиг через RandomizedDelaySec= (распределить нагрузку)
+
+# Управление:
+sudo systemctl enable --now backup.timer
+systemctl list-timers           # увидеть все таймеры с next-trigger
+journalctl -u backup.service    # логи прошлых запусков</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DOCKER</span>
+          <span>Стек docker-compose под systemd (паттерн)</span>
+        </div>
+        <pre># Зачем: автозапуск стека при перезагрузке сервера +
+#        автоматический рестарт при падении + единый журнал.
+
+# /etc/systemd/system/myapp.service:
+[Unit]
+Description=My App Stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/myapp
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=5
+User=appuser           # ⭐ НЕ root, иначе файлы данных будут root:root
+
+[Install]
+WantedBy=multi-user.target
+
+# Деплой:
+sudo systemctl daemon-reload
+sudo systemctl enable --now myapp</pre>
+      </div>
+
+      <div class="note">
+        <strong>Главное правило прода:</strong> любой сервис должен (1) запускаться через systemd-юнит с <code>Restart=on-failure</code>, (2) логировать в journal (просто пиши в stdout/stderr), (3) обрабатывать SIGTERM для корректного завершения. Без этих трёх — сервис нельзя считать прод-готовым.
       </div>
 
       <h2>SELinux — безопасность на Fedora/RHEL</h2>
