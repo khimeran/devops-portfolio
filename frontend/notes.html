@@ -1595,6 +1595,274 @@ sudo systemctl enable --now portfolio # автозапуск при boot</pre>
       <div class="note">
         <strong>Итог темы:</strong> процесс — это запущенная программа с PID. <code>ps</code>/<code>top</code>/<code>htop</code> — три способа посмотреть. <code>kill</code> шлёт сигналы (TERM = вежливо, KILL = насильно). PID 1 в Docker — особенный, без обработчика SIGTERM <code>docker stop</code> ждёт 10 сек. Лечится <code>--init</code> или signal handler. systemd управляет сервисами через юниты в <code>/etc/systemd/system/</code>; <code>systemctl</code> для управления, <code>journalctl</code> для логов. После любой правки юнита — <code>daemon-reload</code>. <code>Restart=on-failure</code> заменяет <code>pm2</code>/<code>supervisord</code>/<code>forever</code> одной строкой.
       </div>
+
+      <!-- ============ ТЕМА 5: ЮЗЕРЫ И SUDO ============ -->
+      <h2>Юзеры и sudo</h2>
+      <p>Пятая большая тема: кто такие юзеры в Linux, как их создавать (<code>useradd</code>), управлять (<code>usermod</code>, <code>passwd</code>), и как давать им <strong>точечные административные права</strong> через <code>/etc/sudoers.d/</code>. Это база безопасности на любом сервере: у каждого админа свой юзер, и каждый шаг с повышением прав логируется.</p>
+
+      <h3><code>/etc/passwd</code>, <code>/etc/shadow</code>, <code>/etc/group</code></h3>
+      <p>Три текстовых файла, которые держат всю информацию о юзерах. Их можно прочесть глазами (<code>passwd</code> и <code>group</code> — без sudo, <code>shadow</code> — только под рутом).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>/etc/passwd — одна строка на юзера, 7 полей через :</span>
+        </div>
+        <pre>kirill:x:1000:1000:Kirill:/home/kirill:/bin/bash
+  1     2  3    4    5         6           7
+
+1. имя для входа
+2. ПЛЕЙСХОЛДЕР пароля (x = «реальный хэш в /etc/shadow»)
+3. UID — числовой ID. 0 = root. 1-999 системные. 1000+ обычные.
+4. GID — основной группы (обычно совпадает с UID)
+5. GECOS — комментарий, обычно полное имя
+6. домашний каталог
+7. login shell. /sbin/nologin = «существует, но войти нельзя»
+                                (используется для postgres, nginx и т.д.)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>/etc/shadow — хэш пароля + политика</span>
+        </div>
+        <pre>kirill:$y$j9T$SALT$HASH:20581:0:99999:7:::
+
+# Формат поля пароля: $ID$SALT$HASH
+# ID = алгоритм:
+$1$  MD5         — ⚠️ старый, небезопасный
+$5$  SHA-256     — старые серверы
+$6$  SHA-512     — RHEL 7-8, Ubuntu &lt;22
+$y$  yescrypt    — Fedora 35+, современный (memory-hard, GPU-resistant)
+
+# Маркеры «логин запрещён»:
+!  или  *      — пароль заблокирован, через пароль войти нельзя
+                 (для системных юзеров и для свежесозданных без passwd)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>/etc/group — описание групп</span>
+        </div>
+        <pre>wheel:x:10:kirill,iosic
+docker:x:964:kirill
+ 1     2 3    4
+
+1. имя группы
+2. плейсхолдер пароля группы (почти никогда не используется)
+3. GID
+4. участники через запятую (НЕ считая тех, у кого это основная группа)
+
+# Проверить, в каких группах юзер:
+groups kirill
+id kirill</pre>
+      </div>
+
+      <h3><code>useradd</code>, <code>usermod</code>, <code>userdel</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Создание юзера</span>
+        </div>
+        <pre># ⚠️ adduser vs useradd:
+#   на Fedora/RHEL — adduser = СИМЛИНК на useradd (одно и то же)
+#   на Debian/Ubuntu — adduser — отдельный Perl-скрипт (интерактивный)
+# Универсально писать useradd явно.
+
+sudo useradd -m -s /bin/bash -c "Test User" testuser
+#         │   │              │
+#         │   │              └─ GECOS-комментарий
+#         │   └─ login shell
+#         └─ создать домашний каталог + копировать /etc/skel/
+
+# Под капотом одной командой:
+# 1. найти следующий свободный UID ≥ 1000
+# 2. создать ОТДЕЛЬНУЮ группу с тем же именем (user private group)
+# 3. строки в /etc/passwd, /etc/shadow (заперто), /etc/group
+# 4. /home/testuser/ от него, права 700, скопировать /etc/skel/
+
+# Задать пароль (снимает замок !):
+sudo passwd testuser
+
+# Добавить в дополнительные группы:
+sudo usermod -aG wheel,docker testuser     # ⭐ -a = APPEND, без него ЗАТРЁТ группы!
+
+# Удалить юзера + домашний каталог:
+sudo userdel -r testuser</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ <code>usermod -G</code> без <code>-a</code></strong> = ЗАМЕНИТЬ список групп. Это означает «выкинуть из всех остальных». Один из главных способов случайно вылететь из <code>wheel</code> и потерять sudo. Запомни: <strong>всегда <code>usermod -aG</code></strong>.
+      </div>
+
+      <h3><code>su</code> vs <code>sudo</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗНИЦА</span>
+          <span>Полная смена личности vs точечный доступ</span>
+        </div>
+        <pre>su        смена ПОЛНОЙ личности на одну сессию
+          требует ПАРОЛЬ ЦЕЛЕВОГО юзера (root'а — для перехода в root)
+          один запрос пароля → всё подряд от его имени
+
+sudo      выполнить ОДНУ команду от имени root (или другого юзера)
+          требует ТВОЙ пароль (если ты в правах)
+          КАЖДАЯ команда логируется (аудит!)
+          можно дать точечно «только перезапуск nginx»
+
+# На проде везде sudo — потому что есть аудит и точечные права.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Варианты sudo su / sudo -i / machinectl</span>
+        </div>
+        <pre>sudo su          стать root БЕЗ перезагрузки окружения
+                 cwd, PATH, env остаются твои
+                 # вместо $, но контекст твой
+
+sudo su -        стать root С полным login-окружением
+                 cwd = /root, прочитан /root/.bashrc
+                 PATH сброшен на root'овский
+
+sudo -i          ⭐ современная замена sudo su - (чище)
+sudo -s          современная замена sudo su (без login-env)
+
+sudo -u oracle -i        перейти в oracle с полным окружением
+machinectl shell user@   ⭐ ЛУЧШЕЕ для прода — чистая login-сессия,
+                         как если бы юзер физически зашёл с консоли
+                         (закрывает PAM/D-Bus-капканы при работе с
+                          сервисами от имени другого юзера)</pre>
+      </div>
+
+      <h3>sudoers и точечный sudo</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATHS</span>
+          <span>Где живут правила</span>
+        </div>
+        <pre>/etc/sudoers       главный файл, НЕ редактировать напрямую!
+/etc/sudoers.d/    папка с фрагментами — сюда кладём свои правила
+
+# ⚠️ NEVER do: sudo nano /etc/sudoers
+# Битый синтаксис = потеря sudo навсегда (надо single-user mode чинить).
+
+# Правильный путь:
+sudo visudo                              # /etc/sudoers
+sudo visudo -f /etc/sudoers.d/myapp      # фрагмент
+# visudo проверяет синтаксис при сохранении и не даст сохранить битое.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SYNTAX</span>
+          <span>Формат правила</span>
+        </div>
+        <pre>USER  MACHINE=(RUNAS_USER) [TAGS:] COMMANDS
+
+# Примеры:
+root    ALL=(ALL)        ALL                     # root всё может
+%wheel  ALL=(ALL)        ALL                     # группа wheel всё может
+%wheel  ALL=(ALL) NOPASSWD: ALL                  # ⚠️ без пароля — на проде не делать!
+appuser ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart nginx
+                                                 # ТОЛЬКО эта команда, без пароля
+deploy  ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart *.service
+                                                 # любой *.service — wildcard
+backup  ALL=(ALL) NOPASSWD: /usr/bin/rsync /data /backup
+                                                 # ровно эта команда, в проде так дают cron-задачам
+
+# Поля:
+#   USER          — кто (юзер) или %группа
+#   MACHINE       — с какой машины (для NIS-сетей; обычно ALL)
+#   (RUNAS_USER)  — от чьего имени можно (после sudo -u; обычно ALL)
+#   TAGS          — например NOPASSWD: или NOLOG:
+#   COMMANDS      — какие команды разрешены (полный путь!)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PRACTICE</span>
+          <span>Создание точечного sudo для сервиса</span>
+        </div>
+        <pre># Дать appuser право рестартить только Docker:
+sudo bash -c 'echo "appuser ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart docker" \
+              > /etc/sudoers.d/appuser-docker'
+sudo chmod 440 /etc/sudoers.d/appuser-docker     # обязательные права
+
+# Проверить, что разрешено юзеру:
+sudo -u appuser sudo -n -l        # -l = list rules, -n = non-interactive
+# выведет: (ALL) NOPASSWD: /usr/bin/systemctl restart docker
+
+# Проверить запрет:
+sudo -u appuser sudo -n cat /etc/shadow
+# &gt; sudo: a password is required
+
+# Проверить разрешение:
+sudo -u appuser sudo -n systemctl restart docker
+# &gt; (без вывода = OK)</pre>
+      </div>
+
+      <h3>Аудит sudo через journalctl</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Кто что делал через sudo</span>
+        </div>
+        <pre># Все sudo-операции за последний час:
+sudo journalctl _COMM=sudo --since "1 hour ago"
+
+# Цепочка из аудита:
+# sudo[268030]: testuser : TTY=pts/5 ; PWD=/home/kirill/perms-lab ;
+#                          USER=root ; COMMAND=/usr/bin/systemctl restart docker
+#
+# В одной строке:
+#   КТО запустил sudo (testuser)
+#   ОТКУДА (TTY=pts/5)
+#   ИЗ КАКОЙ ПАПКИ (PWD=)
+#   ОТ ИМЕНИ КОГО (USER=root)
+#   КАКУЮ команду (COMMAND=)
+
+# Это и есть тот самый "аудит на проде" — расследование инцидента
+# делается одной командой journalctl.
+
+# На старых системах журнал sudo пишется в:
+sudo tail /var/log/secure       # RHEL/CentOS
+sudo tail /var/log/auth.log     # Debian/Ubuntu</pre>
+      </div>
+
+      <h3>Группы wheel и docker — эквивалент root</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SECURITY</span>
+          <span>Кого не стоит добавлять без раздумий</span>
+        </div>
+        <pre>wheel       на Fedora/RHEL — «может sudo»
+            на Debian/Ubuntu роль играет группа sudo
+            ⭐ членство = возможность выполнить sudo
+
+docker      ⚠️ ЭКВИВАЛЕНТНО root
+            кто в docker — может: docker run -v /:/host alpine
+            → полный доступ к хост-ФС через контейнер
+            на проде дают редко и осознанно
+
+vboxusers   доступ к VirtualBox-устройствам
+audio,video периферия (микрофон, камера) — обычно у GUI-юзеров
+
+# Универсальный вопрос на собес:
+# «Почему группа docker эквивалентна root?»
+# Ответ — пример выше: bind-mount корня в контейнер.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> юзер = строка в <code>/etc/passwd</code> + хэш в <code>/etc/shadow</code> + членство в группах в <code>/etc/group</code>. UID — то, что видит ядро, имя — для людей. <code>useradd -m</code> создаёт юзера + домашний каталог. На Fedora <code>adduser</code> = <code>useradd</code>, на Debian — другой скрипт. <code>passwd</code> ставит пароль (без него юзер заперт). <code>usermod -aG</code> добавляет в группы (без <code>-a</code> затрёт существующие!). <code>su</code> — полная смена личности, <code>sudo</code> — точечная команда + аудит. Правила в <code>/etc/sudoers</code> и <code>/etc/sudoers.d/</code>, правка через <code>visudo</code>. <strong>Прод-паттерн: фрагмент в <code>/etc/sudoers.d/</code> с одной разрешённой командой, без NOPASSWD на ALL.</strong> Группа <code>docker</code> = эквивалент root.
+      </div>
     </section>
 
     <!-- GIT -->
