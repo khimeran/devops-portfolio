@@ -1863,6 +1863,191 @@ audio,video периферия (микрофон, камера) — обычно
       <div class="note">
         <strong>Итог темы:</strong> юзер = строка в <code>/etc/passwd</code> + хэш в <code>/etc/shadow</code> + членство в группах в <code>/etc/group</code>. UID — то, что видит ядро, имя — для людей. <code>useradd -m</code> создаёт юзера + домашний каталог. На Fedora <code>adduser</code> = <code>useradd</code>, на Debian — другой скрипт. <code>passwd</code> ставит пароль (без него юзер заперт). <code>usermod -aG</code> добавляет в группы (без <code>-a</code> затрёт существующие!). <code>su</code> — полная смена личности, <code>sudo</code> — точечная команда + аудит. Правила в <code>/etc/sudoers</code> и <code>/etc/sudoers.d/</code>, правка через <code>visudo</code>. <strong>Прод-паттерн: фрагмент в <code>/etc/sudoers.d/</code> с одной разрешённой командой, без NOPASSWD на ALL.</strong> Группа <code>docker</code> = эквивалент root.
       </div>
+
+      <!-- ============ ТЕМА 6: ПАКЕТЫ И ЛОГИ ============ -->
+      <h2>Пакеты (dnf) и ротация логов</h2>
+      <p>Шестая тема: как ставить, обновлять и откатывать пакеты через <code>dnf</code> на Fedora/RHEL, и как настроить автоматическую ротацию логов через <code>logrotate</code>, чтобы они не съели диск.</p>
+
+      <h3>dnf — пакетный менеджер Fedora/RHEL</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ИСТОРИЯ</span>
+          <span>rpm → yum → dnf → dnf5</span>
+        </div>
+        <pre>rpm    низкоуровневый, ставит ОДИН .rpm-файл, без зависимостей
+yum    поверх rpm, разрешает зависимости (RHEL 5-7, CentOS 7)
+dnf    переписанный yum на Python 3 (Fedora 22+, RHEL 8+)
+dnf5   переписанный dnf на C++ (Fedora 41+) — быстрее, современный
+
+# Аналоги на других дистрибутивах:
+apt     Debian/Ubuntu
+pacman  Arch
+zypper  openSUSE
+apk     Alpine</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Базовые команды</span>
+        </div>
+        <pre># === ПОИСК И ИНФА ===
+dnf search KEYWORD          # ⚠️ фуззи: ищет подстроку в имени И описании
+                            # для общих слов даёт много false-positive
+
+dnf info PACKAGE            # ⭐ точное имя — версия, размер, описание, repo
+dnf list installed | grep X # что установлено
+
+# === УСТАНОВКА И УДАЛЕНИЕ ===
+sudo dnf install -y htop tree         # -y = не спрашивать подтверждение
+sudo dnf remove qbittorrent           # удалить (без зависимостей)
+sudo dnf autoremove                   # удалить ненужные зависимости
+
+# === ОБНОВЛЕНИЕ ===
+sudo dnf check-update                 # что есть обновить (exit code 100 если есть)
+sudo dnf update                       # обновить ВСЁ
+sudo dnf upgrade nginx                # обновить конкретный пакет
+sudo dnf distro-sync                  # синхронизация с версиями в репо
+                                      # (используется при апгрейде дистра)
+
+# === ⭐ ИСТОРИЯ И ОТКАТ ===
+sudo dnf history list                 # все транзакции с ID, датой, действием
+sudo dnf history info 47              # детали транзакции 47 (что ставилось)
+sudo dnf history undo 47              # ОТКАТИТЬ транзакцию 47
+sudo dnf history rollback 46          # вернуть систему в состояние ПОСЛЕ 46
+# Эта связка спасает на проде, когда обновление сломало сервис.
+
+# === КАКОЙ ПАКЕТ СОДЕРЖИТ ФАЙЛ ===
+dnf provides /usr/bin/htop            # для встретившегося незнакомого бинарника
+dnf provides '*/nginx.conf'           # по wildcard
+
+# === РЕПОЗИТОРИИ ===
+dnf repolist                          # список активных репо
+dnf repolist all                      # включая отключенные
+sudo dnf config-manager --add-repo URL.repo
+sudo dnf install --enablerepo=docker-ce ...     # одноразово включить repo</pre>
+      </div>
+
+      <div class="note">
+        <strong>Главная фича dnf на проде</strong> — <code>dnf history undo &lt;ID&gt;</code>. Этого <strong>нет в apt</strong> из коробки. Когда апдейт ломает сервис в 3 часа ночи — откат одной командой за минуту. На Debian тот же откат требует ручного <code>apt install package=oldversion</code> для каждого пакета.
+      </div>
+
+      <h3>logrotate — чтобы логи не съели диск</h3>
+      <p>Логи на сервере растут постоянно: nginx-access, докер-контейнеры, application-логи. Если их не подрезать — рано или поздно <code>/var/log</code> заполнит диск и сервисы упадут с «No space left on device». <code>logrotate</code> автоматически обрезает, упаковывает и удаляет старые логи.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATHS</span>
+          <span>Где живут конфиги</span>
+        </div>
+        <pre>/etc/logrotate.conf    глобальные дефолты + include /etc/logrotate.d
+/etc/logrotate.d/      ⭐ папка с конфигом ДЛЯ КАЖДОГО сервиса:
+                       rsyslog, httpd, fail2ban, samba, mariadb, ...
+
+# Запускается СИСТЕМНЫМ ТАЙМЕРОМ ежедневно:
+systemctl list-timers logrotate.timer
+
+# Интересный момент: таймер ежедневный, но сами конфиги могут быть weekly.
+# logrotate проверяет ВНУТРИ конфига: «прошла ли неделя?» и решает сам.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONFIG</span>
+          <span>Типовой конфиг /etc/logrotate.d/rsyslog</span>
+        </div>
+        <pre>/var/log/cron
+/var/log/maillog
+/var/log/messages
+/var/log/secure
+/var/log/spooler
+{
+    missingok               ← если файл отсутствует — не ругаться
+    sharedscripts           ← postrotate ОДИН на весь блок (не для каждого)
+    postrotate
+        /usr/bin/systemctl reload rsyslog.service &gt;/dev/null 2&gt;&amp;1 || true
+                            ← после ротации — SIGHUP сервису,
+                              чтобы он переоткрыл новый файл
+    endscript
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DIRECTIVES</span>
+          <span>Самые частые директивы</span>
+        </div>
+        <pre>daily / weekly / monthly    как часто ротировать
+rotate 7                    хранить 7 старых копий, остальное удалить
+compress                    ⭐ упаковать старые в .gz (экономит место)
+delaycompress               не сжимать самую свежую копию
+                            (нужно если приложение ещё в неё пишет)
+dateext                     суффикс — дата (messages-20260603), не число
+missingok                   файла нет → не паниковать
+notifempty                  пустые не ротировать
+create 0640 root adm        создать новый файл с такими правами/владельцем
+copytruncate                ⚠️ копировать содержимое + обнулить ОРИГИНАЛ
+                            нужно для приложений, которые НЕ умеют SIGHUP
+                            (NodeJS, многие самописы)
+size 100M                   ротировать если файл &gt; 100 МБ
+maxage 30                   ⭐ удалять копии старше 30 дней
+postrotate / endscript      команды ПОСЛЕ ротации (обычно SIGHUP сервису)
+prerotate  / endscript      команды ДО ротации</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Тест и отладка</span>
+        </div>
+        <pre># ⭐ DEBUG-режим: ничего не делает, только говорит ЧТО БЫ сделал
+sudo logrotate -d /etc/logrotate.d/myapp 2>&1 | head -30
+
+# Вывод покажет:
+# considering log /var/log/myapp.log
+#   Now: 2026-06-03 18:00
+#   Last rotated at 2026-06-01 03:14
+#   log does not need rotating  ← или «log needs rotating»
+
+# FORCE-режим: ротировать сейчас, игнорируя расписание
+sudo logrotate -f /etc/logrotate.d/myapp
+
+# Где logrotate помнит «когда что последний раз ротировалось»:
+cat /var/lib/logrotate/logrotate.status</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PRACTICE</span>
+          <span>Свой конфиг для самописного сервиса</span>
+        </div>
+        <pre># Допустим, твой FastAPI пишет в /var/log/myapp/*.log
+# Создаём /etc/logrotate.d/myapp:
+
+sudo tee /etc/logrotate.d/myapp > /dev/null <<'EOF'
+/var/log/myapp/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 myapp myapp
+    sharedscripts
+    postrotate
+        systemctl reload myapp.service > /dev/null 2>&1 || true
+    endscript
+}
+EOF
+
+# Проверить, что не сломан:
+sudo logrotate -d /etc/logrotate.d/myapp</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> <code>dnf search</code> — fuzzy, <code>dnf info</code> — точное имя. <code>dnf install -y</code>, <code>dnf update</code>, <code>dnf history undo &lt;ID&gt;</code> для отката (фича dnf, у apt такого нет). <code>dnf provides &lt;файл&gt;</code> — найти пакет по файлу. logrotate запускается ежедневным systemd-timer'ом и сам решает по конфигу daily/weekly/monthly. Конфиги в <code>/etc/logrotate.d/</code>. Главные директивы: <code>rotate N</code>, <code>compress</code>, <code>missingok</code>, <code>copytruncate</code> (для NodeJS/самописа без SIGHUP), <code>postrotate</code> с SIGHUP для сервисов. Тест через <code>logrotate -d</code> — ничего не делает, только говорит ЧТО БЫ сделал.
+      </div>
     </section>
 
     <!-- GIT -->
