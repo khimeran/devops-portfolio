@@ -2050,6 +2050,426 @@ sudo logrotate -d /etc/logrotate.d/myapp</pre>
       </div>
     </section>
 
+    <!-- NETWORK & SSH -->
+    <section id="network">
+      <h1>🌐 Сеть и SSH</h1>
+      <p>Сетевой фундамент Linux + SSH (главный рабочий инструмент DevOps). Темы: интерфейсы и маршруты (<code>ip</code>), порты и соединения (<code>ss</code>), firewall (<code>firewalld</code>), DNS (<code>dig</code>, <code>systemd-resolved</code>), SSH-ключи, <code>~/.ssh/config</code>, хардненг <code>sshd</code>, туннели.</p>
+
+      <!-- ============ ТЕМА 1: ИНТЕРФЕЙСЫ И МАРШРУТЫ ============ -->
+      <h2>Интерфейсы, IP, маршруты</h2>
+
+      <h3>Сетевые интерфейсы</h3>
+      <p>Всё, что может слать пакеты — это интерфейс: проводной (<code>enpXsY</code>), Wi-Fi (<code>wlpXsY</code>), loopback (<code>lo</code>), виртуальные мосты Docker (<code>docker0</code>, <code>br-XXX</code>), VPN (<code>tun0</code>). У каждого свой IP.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Посмотреть интерфейсы</span>
+        </div>
+        <pre>ip -br a              # ⭐ brief — компактный вид
+ip a                  # подробно (MAC, флаги, статистика)
+ip a show wlo1        # один интерфейс
+
+# Состояния: UP / DOWN / UNKNOWN (для lo и tun — норма)
+# Каждая строка: имя | состояние | IP/префикс | IPv6</pre>
+      </div>
+
+      <h3>CIDR-нотация</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CIDR</span>
+          <span>IP + префикс = сеть</span>
+        </div>
+        <pre>192.168.0.105/24    IP + СКОЛЬКО БИТ относится к сети
+                    /24 = первые 24 бита = «сеть 192.168.0.x»
+                    /24 = 256 адресов (.0 — .255)
+
+/8   = 16 777 216 адресов     10.0.0.0/8 (корп. сети)
+/16  = 65 536 адресов         172.20.0.0/16 (Docker)
+/24  = 256 адресов            192.168.0.0/24 (домашняя сетка)
+/30  = 4 адреса               point-to-point (VPN)
+/32  = 1 адрес                один хост
+
+# Приватные диапазоны (RFC 1918) — не маршрутизируются в интернет:
+10.0.0.0/8         корпоративные сети
+172.16.0.0/12      включает 172.17–172.31 (Docker сидит здесь)
+192.168.0.0/16     домашние роутеры</pre>
+      </div>
+
+      <h3>Маршрутизация</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Куда уходят пакеты</span>
+        </div>
+        <pre>ip route       # таблица маршрутизации
+
+# Пример строки:
+default via 192.168.0.1 dev wlo1 proto dhcp src 192.168.0.105 metric 600
+   ↑          ↑              ↑              ↑               ↑
+"всё что    gateway —     отправлять     откуда взялся     приоритет
+не подошло  куда слать    через wlo1     (DHCP — авто)     (меньше = лучше)
+другому"    пакеты
+
+# Алгоритм ядра:
+# 1. сравнить адрес назначения с правилами таблицы
+# 2. САМОЕ СПЕЦИФИЧНОЕ (длинный префикс) выигрывает
+# 3. если ничего не подошло — default
+
+# Примеры решений ядра:
+# ping 172.20.0.2 → подойдёт 172.20.0.0/16 → через br-XXX (Docker)
+# ping 8.8.8.8    → ничего не подошло → default → через wlo1</pre>
+      </div>
+
+      <!-- ============ ТЕМА 2: ПОРТЫ И СОЕДИНЕНИЯ ============ -->
+      <h2>Порты и соединения (<code>ss</code>)</h2>
+      <p>На сервере DevOps первым делом смотрит «что слушает порты» — какие сервисы открыты. Команда — <code>ss</code> (socket statistics, замена устаревшего <code>netstat</code>).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Главные команды ss</span>
+        </div>
+        <pre>sudo ss -tlnp           # ⭐ LISTEN-сокеты TCP + процессы
+# -t TCP, -l listen, -n не резолвить, -p процессы
+
+sudo ss -ulnp           # ⭐ LISTEN-сокеты UDP
+sudo ss -tnp            # ВСЕ TCP-соединения (включая established)
+ss -tn state established                # только установленные
+ss -tn state time-wait | head           # ждут закрытия
+ss -s                   # СТАТИСТИКА (сколько TCP, UDP, и т.д.)
+
+# Поиск кто слушает конкретный порт:
+sudo ss -tlnp | grep :8000</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ГЛАВНОЕ</span>
+          <span>127.0.0.1 vs 0.0.0.0 в Local Address</span>
+        </div>
+        <pre>127.0.0.1:PORT   слушает ТОЛЬКО loopback
+                 доступно ТОЛЬКО локально, из сети НЕ достучаться
+                 ✅ безопасно по умолчанию
+
+0.0.0.0:PORT     слушает на ВСЕХ интерфейсах
+                 доступно из локалки И из интернета (если нет firewall)
+                 ⚠️ требует осознанной настройки firewall
+
+# Классический баг: app.run(host='0.0.0.0', port=8000)
+# — открывает приложение всем в сети, разработчик не понимает этого.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">4-TUPLE</span>
+          <span>Как соединение опознаётся уникально</span>
+        </div>
+        <pre>src_ip:src_port  ↔  dst_ip:dst_port      ← 4 числа = уникальный ID соединения
+
+# В соединении одна сторона — ИНИЦИАТОР (клиент), другая — СЕРВЕР.
+# Различать просто по портам:
+#   КЛИЕНТСКИЙ порт всегда БОЛЬШОЙ (ephemeral, 32768–60999)
+#   СЕРВЕРНЫЙ порт всегда МАЛЫЙ известный (22, 80, 443, 5432, ...)
+
+# Известные порты (часто на собес):
+22    SSH                  3306  MySQL
+80    HTTP                 5432  PostgreSQL
+443   HTTPS                6379  Redis
+53    DNS                  8080  HTTP-альтернатива
+25    SMTP                 9090  Prometheus
+587   SMTP submission      9100  node_exporter
+123   NTP                  3000  Grafana</pre>
+      </div>
+
+      <!-- ============ ТЕМА 3: FIREWALLD ============ -->
+      <h2>Firewall (<code>firewalld</code>)</h2>
+      <p>Ядро фильтрует пакеты через <strong>netfilter</strong>. Управляли через <code>iptables</code>, потом <code>nftables</code>. На современном Fedora/RHEL стандарт — <code>firewalld</code> (обёртка над nftables с моделью <strong>зон</strong>).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Зоны firewalld</span>
+        </div>
+        <pre>Каждый интерфейс попадает в ЗОНУ.
+У зоны свой список разрешённых сервисов и портов.
+
+Самые частые зоны:
+public              ⭐ дефолт серверов — закрыта, нужно явно открывать
+home, internal      доверенная локальная сеть
+work                рабочая сеть
+trusted             всё разрешено (используется для VPN иногда)
+drop                всё дропать (без ответа)
+block               всё дропать (с ICMP-reject)
+docker              автоматическая для docker-мостов
+FedoraWorkstation   ⚠️ десктоп-зона, ПЕРМИССИВНАЯ
+                    (открыты 1025-65535/tcp+udp по умолчанию)
+                    НА ПРОДЕ НЕ ИСПОЛЬЗОВАТЬ</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Управление</span>
+        </div>
+        <pre># === ПОСМОТРЕТЬ ===
+sudo firewall-cmd --get-active-zones
+sudo firewall-cmd --list-all                   # текущая зона целиком
+sudo firewall-cmd --get-services | head        # ВСЕ доступные имена
+
+# === ДОБАВИТЬ ===
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --reload                     # ⚠️ применить permanent!
+
+# === УБРАТЬ ===
+sudo firewall-cmd --permanent --remove-service=samba-client
+sudo firewall-cmd --reload
+
+# === ПРОВЕРИТЬ ===
+sudo firewall-cmd --query-port=8080/tcp        # yes/no
+sudo firewall-cmd --query-service=ssh
+
+# === ПЕРЕМЕСТИТЬ ИНТЕРФЕЙС В ДРУГУЮ ЗОНУ ===
+sudo firewall-cmd --permanent --zone=public --change-interface=eth0
+sudo firewall-cmd --reload</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ Главная ошибка с firewalld:</strong> сделал <code>--permanent --add-service=...</code>, попробовал — не работает. Забыл <code>--reload</code>. Permanent-изменения попадают в файлы, но в runtime не применяются до <code>reload</code>. <strong>Запомни: после permanent — всегда reload.</strong>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FAMILY</span>
+          <span>Эволюция инструментов фильтрации</span>
+        </div>
+        <pre>iptables    старый, прямые правила, ядро 2.4-4.x — везде до 2019 года
+nftables    новый, единый синтаксис, ядро 4.0+ — на современных дистрах
+firewalld   обёртка над nftables, концепция зон (Fedora, RHEL)
+ufw         обёртка над iptables (Ubuntu) — простая, не в Fedora
+
+# На собес: на современном RHEL/Fedora под капотом nftables,
+# но управляют через firewalld. На Ubuntu — ufw поверх iptables.</pre>
+      </div>
+
+      <!-- ============ ТЕМА 4: DNS ============ -->
+      <h2>DNS — имена в IP</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Как программа резолвит имя в IP</span>
+        </div>
+        <pre>1. /etc/hosts          локальный файл — статические соответствия
+                       ⭐ ядро смотрит сюда ПЕРВЫМ
+                       пример: "127.0.0.1 myapp.local" — кастомный домен
+
+2. /etc/resolv.conf    куда идти за DNS, если в hosts нет
+                       на современной Fedora указывает на 127.0.0.53
+                       (systemd-resolved — локальный кэш)
+
+3. systemd-resolved    локальный stub-resolver
+                       кэширует ответы, форвардит апстриму
+                       апстрим в /etc/systemd/resolved.conf или
+                       пришёл от DHCP через NetworkManager</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>dig — главный инструмент диагностики DNS</span>
+        </div>
+        <pre>dig +short github.com               # ⭐ только IP, без шапки
+dig github.com                      # полный вывод со всеми секциями
+dig @8.8.8.8 github.com             # ⭐ спросить КОНКРЕТНЫЙ DNS
+                                    # (обойти локальный кэш)
+
+# Типы записей:
+dig A    github.com +short          # IPv4-адрес (по умолчанию)
+dig AAAA github.com +short          # IPv6-адрес
+dig MX   gmail.com  +short          # почтовые серверы
+dig TXT  google.com +short          # текстовые (SPF, DKIM, верификации)
+dig NS   github.com +short          # сами DNS-серверы домена
+dig CNAME www.github.com +short     # алиасы (имя → имя)
+dig -x 140.82.121.4 +short          # ОБРАТНЫЙ — IP → имя (PTR)
+
+# Системный кэш:
+resolvectl status                   # что systemd-resolved знает
+sudo resolvectl flush-caches        # сбросить кэш</pre>
+      </div>
+
+      <div class="note">
+        <strong>Чеклист «не резолвится»:</strong>
+        <br>1. <code>dig X</code> — резолвится ли через локальный кэш?
+        <br>2. <code>dig @8.8.8.8 X</code> — резолвится через сторонний DNS? Если да — у тебя битый локальный.
+        <br>3. <code>cat /etc/resolv.conf</code> — куда вообще шлёт.
+        <br>4. <code>resolvectl status</code> — что systemd-resolved знает про апстримы.
+      </div>
+
+      <!-- ============ ТЕМА 5: SSH ============ -->
+      <h2>SSH — удалённое управление</h2>
+
+      <h3>Модель работы с ключами</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Как ssh пускает по ключу без пароля</span>
+        </div>
+        <pre>1. Ты генерируешь ПАРУ:
+   id_ed25519       приватная часть (НИКОГДА никому, никуда)
+   id_ed25519.pub   публичная (можно копировать куда угодно)
+
+2. Публичную часть копируешь на сервер:
+   ~/.ssh/authorized_keys (по строке на ключ)
+
+3. При подключении:
+   сервер шлёт «вызов» (challenge)
+   твой ssh-клиент подписывает приватным ключом
+   сервер проверяет подпись твоим публичным
+   если ок → впускает БЕЗ пароля
+
+# Приватный ключ НИКОГДА не покидает твою машину. Только подписи.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Создание и копирование</span>
+        </div>
+        <pre>ssh-keygen -t ed25519 -C "kirill@laptop"
+# -t тип, -C комментарий (метка для человека)
+# спросит пароль для шифрования приватного ключа (passphrase)
+# можно оставить пустым на десктопе
+
+# Копировать публичный на сервер:
+ssh-copy-id -p 2222 user@server.example.com
+# спросит пароль ОДИН раз и положит ~/.ssh/authorized_keys
+
+# Подключиться:
+ssh -p 2222 user@server.example.com</pre>
+      </div>
+
+      <div class="note">
+        <strong>RSA vs Ed25519:</strong> На современных серверах используй <code>Ed25519</code> — ключи ~100 байт, быстрая подпись, безопасность ≈ RSA-4096 при меньшем размере. RSA нужен только если сервер очень старый.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⚠️ ПРАВА</span>
+          <span>SSH откажется работать с неправильными правами</span>
+        </div>
+        <pre>~/.ssh/             700      drwx------
+id_ed25519          600      -rw------- (приватный — только владелец)
+id_ed25519.pub      644      -rw-r--r-- (публичный — секрета нет)
+authorized_keys     600      -rw------- (на сервере)
+known_hosts         644      -rw-r--r--
+
+# Если права слабее — ssh выдаст "WARNING: UNPROTECTED PRIVATE KEY FILE"
+# и откажется использовать ключ. Это защита от случайных утечек.</pre>
+      </div>
+
+      <h3><code>~/.ssh/config</code> — алиасы и настройки</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONFIG</span>
+          <span>Примеры блоков</span>
+        </div>
+        <pre>Host prod
+    HostName prod-server-01.example.com
+    User deploy
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519
+
+Host *.dev
+    User developer
+    ForwardAgent yes              # ⚠️ опасно на чужих серверах
+
+Host bastion
+    HostName 1.2.3.4
+    User jump
+
+Host internal-db
+    HostName 10.0.0.50
+    User dba
+    ProxyJump bastion              # ⭐ ходить через bastion одной командой
+
+Host *
+    ServerAliveInterval 60         # keep-alive каждую минуту
+    ServerAliveCountMax 3          # 3 пропуска = разрыв
+
+# После этого:
+ssh prod              # вместо длинной строки
+ssh internal-db       # пройдёт через bastion автоматически</pre>
+      </div>
+
+      <h3>Хардненг <code>sshd</code> (серверная часть)</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">/etc/ssh/sshd_config</span>
+          <span>Чеклист для прода</span>
+        </div>
+        <pre>Port 2222                        # не 22 — меньше ботов сканит
+PermitRootLogin no               # ⭐ КРИТИЧНО — root напрямую нельзя
+PasswordAuthentication no        # ⭐ только ключи (УБИВАЕТ брутфорс)
+PubkeyAuthentication yes
+PermitEmptyPasswords no
+MaxAuthTries 3                   # макс. попыток на сессию
+AllowUsers deploy admin          # белый список логинов
+X11Forwarding no                 # отключить если GUI не нужен
+ClientAliveInterval 300          # отключать мёртвые сессии
+
+# Проверить эффективную конфигурацию (включая дефолты):
+sudo sshd -T | grep -E '^(port|permitroot|passwordauth)'
+
+# Применить изменения:
+sudo systemctl reload sshd</pre>
+      </div>
+
+      <div class="note">
+        <strong>+ <code>fail2ban</code>:</strong> отдельный демон, смотрит в <code>/var/log/secure</code>, банит IP после N неудачных SSH-попыток (через iptables/firewalld). Дополнительный слой защиты — обязателен на любом боевом сервере с открытым SSH.
+      </div>
+
+      <h3>SSH-туннели (port forwarding)</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>-L и -R</span>
+        </div>
+        <pre># === LOCAL FORWARD (-L) ===
+# «у меня НЕТ доступа к Grafana на серверной сети,
+#  но я могу зайти по SSH на bastion, у которого есть»
+
+ssh -L 3000:grafana.internal:3000 user@bastion
+# теперь у меня на localhost:3000 → это Grafana на удалённой сети
+# открой http://localhost:3000 в браузере — попадёшь на Grafana
+
+# === REMOTE FORWARD (-R) ===
+# «сервер за NAT, я хочу пробросить его порт к себе»
+
+ssh -R 8080:localhost:80 user@public-server
+# на public-server:8080 → ведёт в МОЙ localhost:80
+
+# === ЗАПОМНИТЬ ===
+# -L (Local)  : локальный порт → удалённый адрес
+# -R (Remote) : удалённый порт → локальный адрес
+
+# === SOCKS-ПРОКСИ ===
+ssh -D 1080 user@server          # запустить SOCKS5 на localhost:1080
+                                  # дальше браузер настраивается на SOCKS — весь трафик через сервер</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> <code>ip -br a</code> — интерфейсы, <code>ip route</code> — куда идут пакеты. <code>ss -tlnp</code> — кто слушает порты; <strong><code>127.0.0.1</code> = только локально, <code>0.0.0.0</code> = всем</strong>. firewalld управляется зонами; permanent-изменения требуют <code>--reload</code>. На Fedora под капотом — nftables. DNS: <code>/etc/hosts</code> → <code>/etc/resolv.conf</code> → <code>systemd-resolved</code> → апстрим; диагностика — <code>dig @сервер имя тип</code>. SSH: Ed25519-ключи, <code>~/.ssh/config</code> для алиасов, прод-чеклист — порт не 22, <code>PermitRootLogin no</code>, <code>PasswordAuthentication no</code>, fail2ban. Туннели: <code>-L</code> локальный→удалённый, <code>-R</code> наоборот, <code>-D</code> SOCKS.
+      </div>
+    </section>
+
     <!-- GIT -->
     <section id="git">
       <h1>Git — система контроля версий</h1>
