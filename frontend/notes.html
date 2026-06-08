@@ -2912,6 +2912,333 @@ GIT_TERMINAL_PROMPT=1 GIT_ASKPASS="" git push
       <div class="note">
         <strong>Запомни:</strong> origin — это не коммит и не ветка. Это просто сохранённый адрес GitHub репозитория. Можно проверить: <code>git remote -v</code>
       </div>
+
+      <!-- ============ ADVANCED ============ -->
+      <h2>Git Advanced — merge, rebase, конфликты, reflog</h2>
+
+      <h3>Базовая модель</h3>
+      <p>Коммит — это <strong>снимок проекта</strong> + ссылка на родителя + сообщение. Все коммиты выстраиваются в цепочку: <code>A → B → C → D</code>. <strong>Ветка — это просто указатель</strong> на последний коммит, буквально файл с хэшем внутри (в <code>.git/refs/heads/имя</code>). HEAD — указатель «где я сейчас стою».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EXAMPLE</span>
+          <span>Развилка двух веток</span>
+        </div>
+        <pre>A ── B ── C ── X ── Y      (main: ушли вперёд)
+             \
+              D ── E         (feature: я делал свою фичу)</pre>
+      </div>
+
+      <h3>merge vs rebase — главное отличие</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">MERGE</span>
+          <span>«Гостеприимный хозяин»</span>
+        </div>
+        <pre>git checkout main
+git merge feature
+
+Результат:
+A ── B ── C ── X ── Y ── M     ← M = merge-коммит, ДВА родителя
+            \             /
+             D ── E ─────/
+
+✅ Безопасно. Ничего не переписывается.
+✅ Видно когда что слили.
+❌ История становится «спагетти» из развилок.
+❌ Мусорные коммиты "Merge branch feature into main".</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">REBASE</span>
+          <span>«Переписыватель истории»</span>
+        </div>
+        <pre>git checkout feature
+git rebase main
+
+Результат:
+A ── B ── C ── X ── Y          (main)
+                     \
+                      D' ── E'  (feature, "висит" от Y, не от C)
+
+# D' и E' — НОВЫЕ коммиты с НОВЫМИ хэшами.
+# Те же изменения, но "переигранные" поверх Y.
+# Старых D и E больше нет в истории — git подделал дневник.
+
+✅ Линейная история, читается как книга.
+✅ Нет мусорных merge-коммитов.
+❌ Переписывает историю → хэши меняются.
+❌ ⚠️ ОПАСНО для shared-веток.</pre>
+      </div>
+
+      <div class="note">
+        <strong>👑 Золотое правило rebase:</strong> НИКОГДА не делай rebase на коммитах, которые уже запушены в shared-ветку (main, develop), где работают другие люди. Иначе после твоего <code>--force-push</code> у коллеги при <code>git pull</code> старые коммиты сольются с новыми, и в логе окажутся ДВА набора одних и тех же изменений с разными хэшами. Полный ад. <strong>Rebase можно — только на своих локальных ветках, до пуша.</strong>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОГДА ЧТО</span>
+          <span>Шпаргалка</span>
+        </div>
+        <pre>Делаешь фичу в одиночку, готовишь PR        → rebase на main перед пушем
+Запушил ветку, коллега с ней работает       → ⚠️ только merge
+Сливаешь PR в main                          → merge (или squash merge)
+Локальные коммиты, ещё не отправлял         → rebase свободно</pre>
+      </div>
+
+      <h3>Конфликты: <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code></h3>
+      <p>Возникают когда обе ветки правили <strong>одну и ту же строку</strong> по-разному. Git не может выбрать сам — оставляет тебе <strong>маркеры</strong> в файле:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FILE</span>
+          <span>Что видишь после конфликта</span>
+        </div>
+        <pre>&lt;&lt;&lt;&lt;&lt;&lt;&lt; HEAD
+print("hello from MAIN")          ← версия твоей текущей ветки
+=======
+print("hello from FEATURE")       ← версия ветки, которую сливаешь
+&gt;&gt;&gt;&gt;&gt;&gt;&gt; feature</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Процесс разрулирования</span>
+        </div>
+        <pre># 1. посмотреть, какие файлы в конфликте
+git status
+
+# 2. открыть файл в редакторе, УБРАТЬ маркеры (&lt;&lt;&lt;, ===, &gt;&gt;&gt;)
+#    оставить нужную версию (или гибрид)
+nano file.py
+cat file.py            # проверить — никаких маркеров не осталось
+
+# 3. сообщить git'у, что конфликт решён
+git add file.py
+
+# 4. закрыть слияние
+git commit             # для merge — пишет автоматический message
+git rebase --continue  # для rebase
+git cherry-pick --continue  # для cherry-pick
+
+# === ЕСЛИ ЗАПУТАЛСЯ И ХОЧЕШЬ НАЧАТЬ ЗАНОВО ===
+git merge --abort         # вернуть всё как было до начала merge
+git rebase --abort        # для rebase
+git cherry-pick --abort   # для cherry-pick
+                          # ⭐ "--abort" работает для всех трёх — твой лучший друг</pre>
+      </div>
+
+      <h3>reflog — машина времени git'а</h3>
+      <p>Git ведёт <strong>журнал всех движений HEAD'а</strong> — каждый коммит, checkout, reset, merge, rebase. Из reflog'а можно вернуться в любое состояние из прошлого, даже если ветка удалена и коммит «висит в воздухе». Хранится <strong>90 дней по умолчанию</strong>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Спасение из «всё пропало»</span>
+        </div>
+        <pre>git reflog                       # увидеть все ходы за последнее время
+
+# вывод:
+# f990d6b HEAD@{0}: commit (merge): merge feature
+# 8b9eeb6 HEAD@{1}: checkout: moving from feature to main
+# 5be66c1 HEAD@{2}: commit: feature: change greeting
+#         ↑           ↑
+#         хэш         "N шагов назад от текущего"
+
+# Вернуться к состоянию N ходов назад:
+git reset --hard HEAD@{1}        # на состояние ОДИН ход назад
+git reset --hard f990d6b         # или прямо по хэшу
+
+# Восстановить удалённую ветку:
+git checkout -b восстановленная HEAD@{5}</pre>
+      </div>
+
+      <div class="note">
+        <strong>Что reflog НЕ спасёт:</strong> файлы, которые ты редактировал, но <strong>никогда не добавлял в git</strong> (нет <code>git add</code>). Если делал <code>git reset --hard</code> с такими файлами — они уничтожены навсегда. Reflog отслеживает <strong>коммиты и движения HEAD</strong>, не сами файлы.
+      </div>
+
+      <h3>reset — три режима</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МОДЫ</span>
+          <span>От мягкого к жёсткому</span>
+        </div>
+        <pre>git reset --soft HEAD~1
+    ↓
+    "откатить КОММИТ, оставить файлы в STAGING"
+    как будто ты сделал git add, но ещё не commit'нул
+    ⭐ хочешь переписать сообщение или сразу пересобрать коммит
+
+git reset --mixed HEAD~1     (дефолт — флаг можно не указывать)
+    ↓
+    "откатить коммит И убрать из staging, файлы оставить в РАБОЧЕЙ ПАПКЕ"
+    ⭐ хочешь пересобрать заново: выбрать что куда
+
+git reset --hard HEAD~1
+    ↓
+    ⚠️ "откатить ВСЁ: коммит, staging, файлы на диске перезаписаны"
+    правки УНИЧТОЖАЮТСЯ
+    ⭐ когда уверен на 100% и хочешь чистого состояния</pre>
+      </div>
+
+      <h3>cherry-pick — скопировать один коммит</h3>
+      <p>«Сорвать вишенку с дерева» — взять <strong>один</strong> коммит из ветки и применить его поверх текущей. Часто используется чтобы запортить <strong>hotfix</strong> из main в release-ветку, не таща всю остальную историю.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Использование</span>
+        </div>
+        <pre>git checkout hotfix-1.2
+git cherry-pick 5be66c1          # хэш конкретного коммита
+git cherry-pick feature          # последний коммит ветки feature
+git cherry-pick A B C            # несколько подряд
+git cherry-pick A..D             # диапазон (НЕ включая A)
+git cherry-pick A^..D            # диапазон (включая A) — A^ это "родитель A"
+
+# При конфликте — стандартный процесс:
+# отредактировать файл → git add → git cherry-pick --continue
+# или git cherry-pick --abort
+
+# Если коммит "пустой" после разрешения конфликта
+# (значит изменения уже есть в текущей ветке):
+git cherry-pick --skip           # пропустить
+git commit --allow-empty         # или создать пустой коммит</pre>
+      </div>
+
+      <h3>rebase -i (interactive) — squash и reword</h3>
+      <p>Самый мощный приём: <strong>переписать историю</strong> последних N коммитов — сжать, переименовать, переставить, выкинуть. Используется перед пушем, чтобы из 5 «WIP/typo/fix» коммитов сделать ОДИН осмысленный.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Запуск</span>
+        </div>
+        <pre>git rebase -i HEAD~5        # редактировать 5 последних коммитов
+git rebase -i &lt;хэш-родителя&gt; # все коммиты ПОСЛЕ указанного
+
+# Git откроет редактор со списком:
+pick abc123 первый коммит
+pick def456 второй коммит
+pick 789abc третий коммит
+
+# Команды (меняешь "pick" на нужную):
+# p, pick   = оставить как есть
+# r, reword = оставить, но изменить сообщение
+# s, squash = слить с предыдущим, оба сообщения объединить
+# f, fixup  = как squash, но выкинуть сообщение этого коммита
+# d, drop   = выкинуть коммит совсем
+# e, edit   = остановиться на нём, можно правки внести
+# (строки можно переставлять — порядок коммитов изменится)
+
+# Сохраняешь → git проигрывает план → возможно ещё раз откроет редактор
+# (для сжатого сообщения, если был squash).</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EXAMPLE</span>
+          <span>Типовой кейс — squash перед PR</span>
+        </div>
+        <pre># Было:
+pick abc123 WIP
+pick def456 typo
+pick 789abc опять забыл
+pick aaabbb вроде работает
+pick cccddd точно работает
+
+# Стало (меняем 4 нижних на squash):
+pick abc123 WIP
+squash def456 typo
+squash 789abc опять забыл
+squash aaabbb вроде работает
+squash cccddd точно работает
+
+# После сохранения и редактирования сообщения → ОДИН коммит:
+feat: add user authentication
+
+# Это и есть "красивая история" для PR.</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ После rebase -i:</strong> история ПЕРЕПИСАНА, хэши новые. Если ты УЖЕ запушил эту ветку — <code>git push --force-with-lease</code> (безопаснее чем <code>--force</code>, проверяет что remote не изменился без тебя). Для ШАРЕД ветки — НЕЛЬЗЯ.
+      </div>
+
+      <h3>bisect — найти коммит-виновник бага</h3>
+      <p>Сценарий: «месяц назад работало, сейчас не работает, в какой из 200 коммитов между ними сломалось?». Ручной перебор — ад. <code>git bisect</code> делает <strong>бинарный поиск</strong>: ты говоришь «вот этот старый коммит — good, вот этот свежий — bad», git выкатывает середину, ты проверяешь, говоришь good/bad, git выкатывает следующую середину. <strong>За log₂(N) шагов</strong> находит виновника.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Процесс</span>
+        </div>
+        <pre>git bisect start
+git bisect bad                   # текущий — сломан
+git bisect good abc123           # коммит abc123 — работал
+
+# git выкатил середину истории.
+# Теперь ТЫ запускаешь приложение, тестируешь:
+git bisect good                  # если на этом коммите всё работает
+# или
+git bisect bad                   # если сломано
+
+# git выкатывает следующую середину между good и bad.
+# Повторять, пока git не скажет:
+# "abc123 is the first bad commit"
+
+# Закончить:
+git bisect reset</pre>
+      </div>
+
+      <h3>Шпаргалка команд git</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CHEATSHEET</span>
+          <span>Что часто нужно</span>
+        </div>
+        <pre># === ОТКАТЫ ===
+git restore file.py              # отменить ИЗМЕНЕНИЯ файла (до последнего commit'а)
+git restore --staged file.py     # вытащить из staging обратно в working
+git reset --soft HEAD~1          # откатить коммит, файлы в staging
+git reset --hard HEAD~1          # ⚠️ откатить и сжечь файлы
+git revert HEAD                  # ⭐ создать НОВЫЙ коммит, отменяющий последний
+                                 #   безопасно для shared веток (не переписывает историю)
+
+# === ПОИСК ===
+git log --oneline --all --graph  # ⭐ красивая карта истории
+git log --grep="bug"             # коммиты с "bug" в сообщении
+git log -S "функция"             # коммиты, где упоминается строка кода
+git log -p file.py               # история конкретного файла с diff'ами
+git blame file.py                # кто какую строку написал
+
+# === ВЕТКИ ===
+git branch                       # список локальных
+git branch -a                    # + удалённые
+git branch -D feature            # удалить ветку (даже если не слита)
+git checkout -b new-feature      # создать и переключиться
+git switch feature               # просто переключиться (современная альтернатива checkout)
+
+# === REMOTE ===
+git fetch                        # СКАЧАТЬ новые коммиты с сервера (БЕЗ слияния)
+git pull                         # fetch + merge (или rebase, если настроено)
+git pull --rebase                # fetch + rebase (линейная история)
+git push                         # отправить
+git push --force-with-lease      # ⭐ безопасный force-push (для своих веток после rebase)
+
+# === STASH ===
+git stash                        # ВРЕМЕННО спрятать незакоммиченные правки
+git stash pop                    # вернуть последние
+git stash list                   # увидеть всё, что в stash
+                                 # удобно когда срочно надо переключиться на хотфикс</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> <code>merge</code> — гостеприимный, Y-форма, безопасно везде. <code>rebase</code> — переписывает историю, линейно, ТОЛЬКО на локальных ветках. Конфликты — <code>&lt;&lt;&lt;&lt;</code> в файле, разрулил вручную → <code>git add</code> → <code>commit</code>/<code>--continue</code>. <code>--abort</code> — твой друг во всех мерж/рибейз/cherry-pick. <code>reflog</code> = машина времени, спасает от <code>reset --hard</code>. <code>reset --soft</code> мягко, <code>--hard</code> жестоко. <code>cherry-pick</code> — порт одного коммита. <code>rebase -i</code> — squash коммитов перед PR. <code>bisect</code> — бинарный поиск коммита-виновника бага. <code>git revert</code> — отменить коммит через НОВЫЙ коммит (безопасно для shared-веток, в отличие от reset).
+      </div>
     </section>
 
     <!-- DOCKER -->
