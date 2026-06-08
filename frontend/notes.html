@@ -4477,6 +4477,339 @@ for i in {1..50}; do curl -s http://localhost:8000/topics > /dev/null; sleep 0.3
       </div>
     </section>
 
+    <!-- IAC -->
+    <section id="iac">
+      <h1>🏗 IaC — Infrastructure as Code</h1>
+      <p>«Инфраструктура как код» — описание серверов, сетей, балансировщиков и баз в виде <strong>текстовых файлов в git</strong>, вместо кликов в админке. Любое изменение прода — это PR с ревью. Главная цель — <strong>повторяемость</strong>: один набор файлов разворачивается одинаково в dev, staging, prod. Этот блок — про <code>Terraform</code> (создание ресурсов) и <code>Ansible</code> (настройка серверов).</p>
+
+      <div class="note">
+        <strong>Terraform vs Ansible:</strong> часто путают. <strong>Terraform создаёт ресурсы</strong> (виртуалки, сети, БД в облаке) — занимается тем, чего ещё нет. <strong>Ansible настраивает то, что уже есть</strong> (поставить пакеты, поправить конфиги, перезапустить сервисы). На проде их часто комбинируют: terraform поднимает 5 серверов → ansible их настраивает.
+      </div>
+
+      <h2>Terraform</h2>
+      <p>HashiCorp, написан на Go в 2014-м. Multi-cloud — один синтаксис работает в AWS, GCP, Azure, Yandex Cloud, локальном Docker'е. С 2023-го у HashiCorp поменялась лицензия (BSL), сообщество форкнуло в <strong>OpenTofu</strong> — полностью совместимый, более «свободный». Синтаксис идентичный.</p>
+
+      <h3>Боль, которую решает</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ДО vs ПОСЛЕ</span>
+          <span>Зачем оно вообще</span>
+        </div>
+        <pre>ДО Terraform:
+   - Клики в AWS-консоли: EC2, RDS, Load Balancer, VPC...
+   - Записываю шаги в Confluence (если не забыл)
+   - Через неделю "сделай dev" — кликаю снова, получается ИНАЧЕ
+   - Друг разворачивает по моей инструкции — снова ИНАЧЕ
+
+ПОСЛЕ Terraform:
+   - Пишу .tf-файлы → коммитю в git
+   - terraform apply разворачивает ТОЧНО так же где угодно
+   - Любое изменение = PR с ревью
+   - Откат — git revert + terraform apply
+   - Поднять dev на копии prod = git checkout dev-branch + apply</pre>
+      </div>
+
+      <h3>Жизненный цикл — 4 команды</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>init → plan → apply → destroy</span>
+        </div>
+        <pre>terraform init      # ⭐ скачать провайдеры (раз в проекте)
+                    # создаёт .terraform/ и .terraform.lock.hcl
+
+terraform plan      # ⭐ "что будет?" — dry-run, ничего не делает
+                    # ВСЕГДА смотри, особенно "destroy" в плане
+
+terraform apply     # сделать
+                    # спросит "yes" — нужно вписать ПОЛНОСТЬЮ
+                    # -auto-approve = без вопросов (для CI)
+
+terraform destroy   # снести всё, что terraform создал
+                    # ⚠️ опасно на проде — снесёт всю инфру</pre>
+      </div>
+
+      <h3>Минимальный пример — Docker через Terraform</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>main.tf</span>
+        </div>
+        <pre>terraform {
+  required_providers {
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 3.0"
+    }
+  }
+}
+
+provider "docker" {}
+
+resource "docker_image" "nginx" {
+  name         = "nginx:alpine"
+  keep_locally = false
+}
+
+resource "docker_container" "web" {
+  image = docker_image.nginx.image_id
+  name  = "tf-web"
+  ports {
+    internal = 80
+    external = 8090
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>Что значит каждый блок</span>
+        </div>
+        <pre>terraform { required_providers { ... } }
+   ⭐ корневой блок про сам terraform
+      какие провайдеры нужны и каких версий
+      version = "~> 3.0" — любая 3.x, но не 4.0 (защита от breaking)
+
+provider "docker" {}
+   инициализация провайдера, {} = дефолты
+
+resource "тип" "локальное_имя" { ... }
+   тип        — что создаём (docker_container, aws_instance, ...)
+   локальное_имя — по нему ссылаемся в коде
+   { ... }    — атрибуты ресурса
+
+image = docker_image.nginx.image_id
+   ⭐ ссылка на ДРУГОЙ ресурс
+   синтаксис: ТИП.ИМЯ.АТРИБУТ
+   terraform автоматически поймёт зависимость (image создаётся ПЕРВЫМ)</pre>
+      </div>
+
+      <h3>State — главная концепция</h3>
+      <p><code>terraform.tfstate</code> — JSON-файл, в котором terraform <strong>запомнил</strong>, какие реальные ресурсы создал и какие у них ID в облаке. При каждом <code>plan</code> terraform сравнивает три вещи:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Как terraform решает «что изменилось»</span>
+        </div>
+        <pre>1. Что в твоих .tf-файлах    ← ЖЕЛАЕМОЕ
+2. Что в terraform.tfstate    ← что я знаю, что создал
+3. Что РЕАЛЬНО в облаке       ← API запрос
+
+# Plan = разница между 1 и (2+3).</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ Грабли state'а на проде:</strong>
+        <br>• В state могут быть <strong>секреты</strong> (пароли БД, ключи) → в git НЕ кладут.
+        <br>• Работают двое — нужен <strong>remote state</strong> (S3 + DynamoDB-lock, Terraform Cloud), иначе apply одновременно сломает инфру.
+        <br>• Случайно удалил state — terraform забыл, что создал. Нужен <code>terraform import</code> для каждого ресурса вручную.
+        <br>• <code>terraform state list</code> / <code>state show</code> / <code>state rm</code> — команды для управления.
+      </div>
+
+      <h3>Идемпотентность</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONCEPT</span>
+          <span>Главная фича</span>
+        </div>
+        <pre># Запускаешь terraform apply СНОВА, ничего не меняя:
+Apply complete! Resources: 0 added, 0 changed, 0 destroyed.
+
+# Terraform увидел: желаемое == реальное → ничего не трогает.
+# Безопасно гонять в CI/CD на каждый коммит.
+# В этом ОТЛИЧИЕ от bash-скриптов "ставь nginx" — те бы создали второй.</pre>
+      </div>
+
+      <h3>Типы изменений в плане</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SYMBOLS</span>
+          <span>Что значит каждый символ</span>
+        </div>
+        <pre>+ create                    создать новый ресурс
+- destroy                   удалить
+~ update in-place           поменять атрибут БЕЗ пересоздания
+-/+ destroy and recreate    ⚠️ снести и создать заново
+                              (когда атрибут "forces replacement")
+
+# forces replacement — в комментарии плана:
+~ external = 8090 -> 8091 # forces replacement
+
+# На проде "forces replacement" на БД = потеря данных!
+# ВСЕГДА читай plan, особенно ищи знак "-" там, где не ждёшь.</pre>
+      </div>
+
+      <h3>Variables и outputs — параметризация</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>variables.tf</span>
+        </div>
+        <pre>variable "container_name" {
+  type        = string
+  default     = "tf-web"
+  description = "Имя контейнера"
+}
+
+variable "external_port" {
+  type        = number
+  default     = 8090
+  description = "Порт на хосте"
+}
+
+# В main.tf используется так:
+name     = var.container_name
+external = var.external_port</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>terraform.tfvars (значения)</span>
+        </div>
+        <pre># Этот файл terraform читает АВТОМАТИЧЕСКИ:
+container_name = "tf-web-prod"
+external_port  = 80
+
+# Альтернативы:
+# dev.tfvars / prod.tfvars — для разных окружений
+# применять: terraform apply -var-file=prod.tfvars
+
+# Приоритет значений (от высокого к низкому):
+# 1. CLI флаг        terraform apply -var="external_port=8080"
+# 2. ENV переменная   TF_VAR_external_port=8080
+# 3. .tfvars-файл     terraform.tfvars или -var-file
+# 4. default          из variables.tf</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>outputs.tf — "верни значение наружу"</span>
+        </div>
+        <pre>output "container_id" {
+  value       = docker_container.web.id
+  description = "ID созданного контейнера"
+}
+
+output "url" {
+  value       = "http://localhost:${var.external_port}"
+  description = "URL для проверки"
+}
+
+# Использование:
+# terraform output           — показать все
+# terraform output url       — конкретный
+# В CI используют для health-check после apply</pre>
+      </div>
+
+      <h3>Интерполяция строк</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>Внутри двойных кавычек ${...} — это выражение</span>
+        </div>
+        <pre>"http://localhost:${var.external_port}"     ← подставится 8090
+"backend-${var.environment}"                ← "backend-prod"
+"${path.module}/scripts/init.sh"            ← абсолютный путь к файлу
+
+# Это как f-strings в Python: f"http://localhost:{port}"</pre>
+      </div>
+
+      <h3>Boundary: когда что-то застряло в state</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Управление state вручную</span>
+        </div>
+        <pre>terraform state list                       # список всех ресурсов в state
+terraform state show docker_container.web  # подробности по ресурсу
+
+# Самое частое — "забудь про этот ресурс":
+terraform state rm docker_image.nginx
+   # удаляет из state, в реальности НЕ трогает
+   # полезно когда ресурс используется кем-то ещё и destroy падает
+
+# Импортировать существующий ресурс в state:
+terraform import docker_container.web CONTAINER_ID
+   # нужно если ресурс уже создан руками, а ты хочешь
+   # начать им управлять через terraform</pre>
+      </div>
+
+      <h3>Темы для самостоятельного изучения</h3>
+      <p>Мы прошли основу. На проде встретишь ещё это:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ADVANCED</span>
+          <span>Что есть кроме базы</span>
+        </div>
+        <pre>МОДУЛИ
+   module "vpc" {
+       source = "./modules/vpc"
+       cidr   = "10.0.0.0/16"
+   }
+   — переиспользуемые блоки конфигурации
+   — официальные модули на registry.terraform.io
+
+BACKEND — где хранить state
+   terraform {
+       backend "s3" {
+           bucket = "my-tf-state"
+           key    = "prod/terraform.tfstate"
+           region = "eu-west-1"
+       }
+   }
+   — храним state в S3, а не локально
+   — DynamoDB добавляет блокировку (lock), чтобы двое не сломали инфру
+
+WORKSPACES — несколько окружений на одном коде
+   terraform workspace new dev
+   terraform workspace new prod
+   terraform workspace select dev
+   — у каждого workspace свой state
+
+COUNT / FOR_EACH — циклы
+   resource "docker_container" "web" {
+       count = 3
+       name  = "web-${count.index}"
+   }
+   # создаст 3 контейнера: web-0, web-1, web-2
+
+DATA SOURCES — read-only "посмотреть, что есть в облаке"
+   data "aws_ami" "ubuntu" {
+       most_recent = true
+       owners      = ["099720109477"]
+   }
+   # потом: ami = data.aws_ami.ubuntu.id
+
+LIFECYCLE — управление поведением ресурса
+   lifecycle {
+       prevent_destroy = true   # запретить destroy
+       create_before_destroy = true  # создать новый ДО удаления старого
+       ignore_changes = [tags]  # игнорировать изменения в этом поле
+   }</pre>
+      </div>
+
+      <div class="note">
+        <strong>Главные команды на собес:</strong> <code>init / plan / apply / destroy</code> — жизненный цикл. <code>fmt / validate</code> — форматирование и проверка синтаксиса. <code>state list / show / rm / mv</code> — управление state. <code>import</code> — затащить существующий ресурс под управление terraform'а. <code>output</code> — показать выходные значения. <code>refresh</code> — обновить state из реального облака.
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> Terraform = IaC #1 в индустрии. 4 команды (<code>init → plan → apply → destroy</code>). <strong>Plan читать ВСЕГДА</strong>, особенно искать «destroy» там, где не ждёшь. State — JSON с тем, что terraform знает; в git НЕ кладут (секреты), на проде — remote backend (S3 + lock). Идемпотентность = повторный apply ничего не делает. <strong>Forces replacement</strong> = снос и создание заново — опасно для БД. Variables → tfvars → outputs — параметризация и возврат значений. Когда что-то застряло — <code>terraform state rm</code> «забудь про этот ресурс». На собес: «знаю terraform basics, на проде хочу освоить modules + remote state».
+      </div>
+    </section>
+
     <!-- ANSIBLE -->
     <section id="ansible">
       <h1>Ansible — автоматизация конфигурации</h1>
