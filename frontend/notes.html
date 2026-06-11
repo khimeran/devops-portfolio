@@ -3754,6 +3754,40 @@ LEFT JOIN progress_log ON users.id = progress_log.user_id;
         <strong>Запомни:</strong> INNER JOIN — самый частый. LEFT JOIN используют когда нужны все записи из главной таблицы даже если связанных данных нет. Результат JOIN — новая временная таблица из объединённых колонок обеих таблиц.
       </div>
 
+      <h3>Капкан: <code>WHERE</code> на правой таблице убивает LEFT JOIN</h3>
+      <p>Главная ловушка LEFT JOIN, на которой палятся даже мидлы. Стоит написать условие на колонку <strong>правой</strong> таблицы в <code>WHERE</code> — и LEFT JOIN тихо превращается в INNER JOIN. Прямое следствие того, что <strong>NULL не проходит <code>WHERE</code></strong>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Как нечаянно превратить LEFT в INNER — и как не надо</span>
+        </div>
+        <pre>-- ❌ ЛОВУШКА: условие на правую таблицу (orders) в WHERE
+SELECT u.name, o.amount
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE o.amount > 100;
+-- у юзеров БЕЗ заказов o.amount = NULL
+-- NULL > 100  =  NULL  (не TRUE!)  → WHERE их выбрасывает
+-- итог: беззаказные юзеры исчезли, LEFT работает как INNER
+
+-- ✅ ПРАВИЛЬНО: фильтр правой таблицы — в ON, а не в WHERE
+SELECT u.name, o.amount
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id AND o.amount > 100;
+-- все юзеры на месте; нет заказа >100 → просто NULL в колонке
+
+-- ✅ Найти юзеров БЕЗ заказов ("мёртвые души"):
+SELECT u.*
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE o.id IS NULL;          -- заказа нет → колонка NULL → пустой юзер</pre>
+      </div>
+
+      <div class="note">
+        <strong>Правило:</strong> фильтр по <strong>левой</strong> таблице можно класть в <code>WHERE</code>; фильтр по <strong>правой</strong> (которую LEFT сохраняет) — только в <code>ON</code>, иначе NULL не пройдёт <code>WHERE</code> и LEFT схлопнется в INNER. Прямая связь с разделом «NULL — заражает всё».
+      </div>
+
       <h2>GROUP BY и HAVING — группировка</h2>
 
       <div class="code-block">
@@ -5329,6 +5363,281 @@ journalctl -u patroni -n 100 --no-pager | grep -E "promoted|demoted|failover"</p
       </div>
     </section>
 
+    <!-- KUBERNETES -->
+    <section id="kubernetes">
+      <h1>☸️ Kubernetes — оркестратор контейнеров</h1>
+      <p>Kubernetes (он же <strong>K8s</strong> — «K», восемь букв, «s») — это автопилот для контейнеров. Docker умеет запустить контейнер на одной машине. K8s умеет держать <strong>сотни контейнеров на десятках машин</strong>: сам раскидывает их по серверам, перезапускает упавшие, масштабирует под нагрузку и даёт им стабильные адреса. Кубер тяжело заходит не потому что сложный, а потому что в нём <strong>много абстракций навалено разом</strong>. Поэтому ниже каждое понятие привязано к тому, что ты уже знаешь — Docker, nginx, systemd, etcd.</p>
+
+      <div class="note">
+        <strong>Аналогия на весь раздел:</strong> Docker Compose — это «запусти мне стек на <em>этой</em> машине». Kubernetes — это «вот тебе <em>флот</em> машин и список того, что должно работать; разруливай сам, кто где запущен, кто упал, кого перезапустить». Compose — повар на одной кухне. K8s — управляющий сетью ресторанов, который сам решает, в каком филиале готовить и кого вызвать на замену заболевшему.
+      </div>
+
+      <h2>Зачем нужен — боль, которую решает</h2>
+      <p>Представь, что у тебя 20 контейнеров на 5 серверах руками через <code>docker run</code>. И вот вопросы, на которые у тебя нет ответа без оркестратора:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">БОЛЬ</span>
+          <span>Что делает Kubernetes за тебя</span>
+        </div>
+        <pre>Контейнер упал в 3 ночи     → K8s сам перезапустит (self-healing)
+Сервер целиком умер          → K8s переедет его контейнеры на живые узлы
+Нагрузка выросла в 10 раз     → K8s поднимет ещё реплик (autoscaling)
+Выкатка новой версии          → K8s обновит поды по одному, без даунтайма
+                               (rolling update; сломалось — откат)
+Где запущен контейнер?        → K8s сам выбирает узел (scheduler)
+Как найти контейнер в сети?   → стабильное DNS-имя через Service
+Конфиги и пароли              → вынесены в ConfigMap / Secret</pre>
+      </div>
+
+      <div class="note">
+        <strong>Ключевая идея — декларативность.</strong> Ты не командуешь «запусти контейнер» (это императив, как <code>docker run</code>). Ты <strong>описываешь желаемое состояние</strong>: «хочу, чтобы всегда работало 3 реплики моего приложения». K8s постоянно сравнивает «что хочу» с «что есть» и сам приводит реальность к желаемому. Это <strong>ровно та же идея, что у Terraform</strong> (желаемое состояние в коде + reconcile), только не для инфры, а для контейнеров в рантайме.
+      </div>
+
+      <h2>Архитектура: Control Plane и Nodes</h2>
+      <p>Кластер K8s делится на две части: <strong>мозг</strong> (Control Plane) и <strong>мышцы</strong> (Worker Nodes — машины, где реально крутятся твои контейнеры).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">АРХИТЕКТУРА</span>
+          <span>Кто за что отвечает</span>
+        </div>
+        <pre>┌─ CONTROL PLANE (мозг кластера) ──────────────────────┐
+│  kube-apiserver  — единая точка входа. ВСЁ общение     │
+│                    идёт через него (kubectl, узлы).    │
+│                    Аналог: API-сервер всего кластера.  │
+│  etcd            — база состояния кластера (key-value).│
+│                    ХРАНИТ "что должно работать".       │
+│                    Тот самый etcd, что в Patroni!      │
+│                    Потеряешь etcd — потеряешь кластер.  │
+│  scheduler       — решает, на КАКОЙ узел поставить под  │
+│                    (по свободным CPU/RAM).             │
+│  controller-mgr  — следит "хочу 3 реплики = есть 3?",   │
+│                    чинит расхождения (reconcile loop). │
+└───────────────────────────────────────────────────────┘
+┌─ WORKER NODE (мышцы, таких много) ───────────────────┐
+│  kubelet         — агент на узле. Получает от мозга    │
+│                    "запусти эти поды" и запускает их.  │
+│                    Аналог: docker daemon + systemd.    │
+│  kube-proxy      — сетевая магия, делает Service'ы.    │
+│  container runtime — сам Docker/containerd, запускает  │
+│                    контейнеры.                         │
+└───────────────────────────────────────────────────────┘</pre>
+      </div>
+
+      <div class="note">
+        <strong>Связь с тем, что знаешь:</strong> <code>etcd</code> ты уже видел в Patroni (раздел HA) — там он хранил «кто лидер PostgreSQL». В K8s etcd хранит <strong>всё состояние кластера</strong> — это его «source of truth», как <code>terraform.tfstate</code> для Terraform. <code>kubelet</code> на узле — это по сути «<code>systemd</code> + <code>docker daemon</code>», который следит, чтобы назначенные ему контейнеры жили.
+      </div>
+
+      <h2>Pod — атом Kubernetes</h2>
+      <p><strong>Pod</strong> — это минимальная единица, которой управляет K8s. Чаще всего Pod = <strong>один контейнер + обёртка вокруг него</strong>. Ты не управляешь контейнерами напрямую — ты управляешь подами.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Pod — это <strong>один <code>docker run</code>, но в скафандре</strong>. Внутри обычно один контейнер (твоё приложение), но у пода есть свой IP, свои тома и свой жизненный цикл. Иногда в поде живёт 2–3 контейнера, которые обязаны быть вместе (приложение + «sidecar» — например сборщик логов). Они делят один IP и localhost — как процессы на одной машине.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Простейший Pod (pod.yaml)</span>
+        </div>
+        <pre>apiVersion: v1
+kind: Pod                 # тип объекта
+metadata:
+  name: my-app            # имя пода
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27   # тот же образ, что в docker run
+      ports:
+        - containerPort: 80</pre>
+      </div>
+
+      <div class="note">
+        <strong>Важно про Pod:</strong> поды <strong>смертны и одноразовы</strong> (ephemeral). Упал — K8s не «лечит» этот под, а создаёт <strong>новый</strong> со <strong>новым IP</strong>. Поэтому на под нельзя ссылаться по IP — он постоянно меняется. Эту проблему решает Service (см. ниже). Сам по себе голый Pod почти не используют — его заворачивают в Deployment.
+      </div>
+
+      <h2>Deployment — следит, чтобы поды жили</h2>
+      <p>Голый Pod упал — и всё, его никто не поднимет. <strong>Deployment</strong> — это надсмотрщик: ты говоришь «хочу 3 реплики», а он постоянно следит, чтобы их было ровно 3. Один упал — поднимет новый. Это и есть self-healing.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Deployment — это <code>systemd</code> с <code>Restart=always</code>, но для целой пачки подов сразу. Помнишь, как <code>Restart=on-failure</code> в твоём <code>.service</code>-юните перезапускал упавший процесс? Deployment делает то же самое для подов, плюс держит их <strong>заданное количество</strong> и умеет обновлять версию без даунтайма.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Deployment с 3 репликами (deployment.yaml)</span>
+        </div>
+        <pre>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-deploy
+spec:
+  replicas: 3             # ⭐ ЖЕЛАЕМОЕ состояние: всегда 3 пода
+  selector:
+    matchLabels:
+      app: web            # какими подами я управляю (по метке)
+  template:              # ШАБЛОН пода, который будут штамповать
+    metadata:
+      labels:
+        app: web          # метка вешается на каждый под
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
+
+# Поднять/обновить:
+kubectl apply -f deployment.yaml
+# Убить один под вручную → Deployment СРАЗУ поднимет новый (всегда 3)
+# Масштабировать на лету:
+kubectl scale deployment web-deploy --replicas=5</pre>
+      </div>
+
+      <div class="note">
+        <strong>Rolling update:</strong> меняешь <code>image: nginx:1.27</code> → <code>1.28</code> и делаешь <code>kubectl apply</code>. Deployment обновляет поды <strong>по одному</strong>: поднял новый — убил старый — и так по кругу. Сервис не падает ни на секунду. Сломалось — <code>kubectl rollout undo deployment web-deploy</code> откатит назад. Это твой CI/CD-деплой без даунтайма, встроенный в кубер.
+      </div>
+
+      <h2>Service — стабильный адрес для подов</h2>
+      <p>Поды постоянно пересоздаются с новыми IP. Как тогда обратиться к приложению? Через <strong>Service</strong> — это <strong>стабильный виртуальный IP + DNS-имя</strong>, которое всегда указывает на актуальные поды и <strong>балансирует</strong> нагрузку между ними.</p>
+
+      <div class="note">
+        <strong>Аналогия — и тут ты уже всё знаешь:</strong> Service — это <strong>nginx <code>upstream</code> внутри кластера</strong>. Помнишь свой раздел про reverse proxy и балансировку? Там nginx держал список бэкендов и раскидывал на них запросы. Service делает ровно это: держит постоянный адрес, а за ним — меняющийся пул подов, и балансит между живыми. Поды приходят и уходят с новыми IP — Service-адрес неизменен.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Service перед Deployment (service.yaml)</span>
+        </div>
+        <pre>apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc
+spec:
+  selector:
+    app: web              # балансирует на поды с меткой app=web
+  ports:
+    - port: 80            # порт самого Service
+      targetPort: 80      # порт внутри пода
+  type: ClusterIP         # тип (см. ниже)
+
+# Теперь другие поды зовут приложение по ИМЕНИ, а не по IP:
+#   http://web-svc        ← внутренний DNS кластера сам резолвит</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ТИПЫ SERVICE</span>
+          <span>Как открыть доступ — изнутри или снаружи</span>
+        </div>
+        <pre>ClusterIP    — (по умолчанию) доступен ТОЛЬКО внутри кластера.
+               Для общения сервисов между собой.
+               Аналог: слушать на 127.0.0.1.
+
+NodePort     — открывает порт на КАЖДОМ узле (30000-32767).
+               Доступ снаружи по IP_узла:порт. Грубовато, для теста.
+
+LoadBalancer — облако (AWS/GCP) поднимает внешний балансировщик
+               с публичным IP. Прод-способ пускать трафик снаружи.
+
+Ingress      — (отдельный объект, не тип Service) умный HTTP-роутер
+               перед сервисами: домены, пути, SSL. Это буквально
+               nginx/traefik как reverse proxy на входе в кластер.</pre>
+      </div>
+
+      <h2>Namespace, ConfigMap, Secret</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ОБЪЕКТЫ</span>
+          <span>Изоляция и конфигурация</span>
+        </div>
+        <pre>Namespace   — виртуальные "папки" внутри кластера.
+              Делят кластер на части: dev / staging / prod,
+              или по командам. Объекты в разных namespace
+              не мешают друг другу (могут иметь одинаковые имена).
+              kubectl get pods -n prod   # поды в namespace prod
+
+ConfigMap   — НЕсекретная конфигурация вынесенная наружу образа:
+              переменные окружения, конфиг-файлы.
+              Аналог: переменные в docker-compose / .env файл.
+
+Secret      — то же, но для ПАРОЛЕЙ, токенов, ключей.
+              Хранится в base64 (это НЕ шифрование!), но
+              управляется отдельно и его можно зашифровать в etcd.
+              Прокидывается в под как env-переменная или файл.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Зачем выносить конфиг наружу:</strong> один и тот же образ должен работать и в dev, и в prod — отличаются только настройки (адрес БД, пароли). Поэтому конфиг <strong>не зашивают в образ</strong>, а подкидывают через ConfigMap/Secret. Это та же мысль, что «секреты не коммитят в Git, а кладут в переменные окружения» из раздела «Важно для DevOps».
+      </div>
+
+      <h2>kubectl — главные команды</h2>
+      <p><code>kubectl</code> (кубоконтроль) — это <code>docker</code> CLI, но для всего кластера. Через него идёт всё общение с <code>kube-apiserver</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Шпаргалка kubectl</span>
+        </div>
+        <pre># Применить манифест (создать/обновить объекты):
+kubectl apply -f deployment.yaml     # ⭐ главная команда (декларативно)
+
+# Посмотреть что есть:
+kubectl get pods                     # список подов
+kubectl get pods -o wide             # + на каком узле и IP
+kubectl get deploy,svc               # деплойменты и сервисы
+kubectl get all                      # вообще всё в namespace
+kubectl get pods -A                  # во ВСЕХ namespace
+
+# Диагностика (твои главные инструменты, когда что-то сломалось):
+kubectl describe pod my-app          # ⭐ подробности + события (Events!)
+kubectl logs my-app                  # логи контейнера (аналог docker logs)
+kubectl logs -f my-app               # стримить логи (как tail -f)
+kubectl exec -it my-app -- bash      # ⭐ зайти внутрь пода (как docker exec)
+
+# Управление:
+kubectl scale deploy web --replicas=5   # масштабировать
+kubectl rollout undo deploy web         # откатить обновление
+kubectl delete pod my-app               # убить под (Deployment поднимет новый)
+kubectl apply -f .                      # применить все yaml в папке
+
+# Контекст и namespace:
+kubectl config get-contexts          # к каким кластерам подключён
+kubectl get pods -n kube-system      # системные поды самого кластера</pre>
+      </div>
+
+      <div class="note">
+        <strong>Главный приём диагностики:</strong> под не поднимается — <code>kubectl describe pod ИМЯ</code> и читай блок <strong>Events</strong> внизу (там причина: нет образа, мало памяти, упал healthcheck). Не помогло — <code>kubectl logs ИМЯ</code>. Это связка как <code>journalctl -u service</code> + <code>docker logs</code> из прошлых разделов, только для кубера.
+      </div>
+
+      <h2>Связь с тем, что ты уже знаешь</h2>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ КАРТА</span>
+          <span>Кубер через знакомые понятия</span>
+        </div>
+        <pre>Pod          ≈  один docker run (контейнер в скафандре)
+Deployment   ≈  systemd с Restart=always + нужное число реплик
+Service      ≈  nginx upstream / reverse proxy (стабильный адрес + баланс)
+Ingress      ≈  nginx на входе: домены, пути, SSL
+ConfigMap    ≈  переменные окружения / .env из docker-compose
+Secret       ≈  секреты из переменных окружения (не в Git!)
+Namespace    ≈  отдельные "проекты"/окружения dev/prod
+etcd         ≈  terraform.tfstate / etcd из Patroni (состояние кластера)
+kubelet      ≈  docker daemon + systemd на каждом узле
+kubectl      ≈  docker CLI, но для всего кластера
+apply -f     ≈  terraform apply (декларативно привести к желаемому)</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог раздела:</strong> Kubernetes — автопилот для контейнеров на флоте машин. Ты <strong>декларативно</strong> описываешь желаемое состояние в YAML, а кластер сам его поддерживает. <strong>Pod</strong> — атом (контейнер+обёртка), смертен и одноразов. <strong>Deployment</strong> держит N живых реплик и обновляет без даунтайма. <strong>Service</strong> даёт стабильный адрес и балансит (как nginx upstream). <strong>etcd</strong> хранит состояние (как tfstate). <strong>kubectl describe</strong> + <strong>logs</strong> — первое, что смотришь, когда сломалось. Дальше по плану: поднять локальный кластер (minikube / kind / k3s) и потрогать всё это руками.
+      </div>
+    </section>
+
     <!-- JIRA / CONFLUENCE -->
     <section id="jira-confluence">
       <h1>Jira и Confluence</h1>
@@ -6229,7 +6538,86 @@ SELECT name, COALESCE(notes, 'нет заметок') FROM topics;
 -- NULLIF — обратное: вернуть NULL если значение равно чему-то:
 SELECT NULLIF(progress, 0) FROM topics;
 -- если progress = 0 → вернёт NULL
--- удобно чтобы не делить на ноль
+-- удобно чтобы не делить на ноль</pre>
+      </div>
+
+      <h2>Боевые приёмы — закрепляем разобранное</h2>
+      <p>Короткие приёмы, которые всплыли на тестировании. Каждый — про реальную ситуацию «что-то сломалось, надо чинить».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Процессы, сигналы, контейнеры</span>
+        </div>
+        <pre># Убивать процесс ПРАВИЛЬНО (не лупить -9 сразу):
+kill 4242              # SIGTERM — вежливо, даёт закрыть файлы/БД
+# подождал пару секунд, не сдох:
+kill -9 4242           # SIGKILL — насильно (рвёт данные, оставляет .lock)
+# SIGKILL нельзя поймать; сразу -9 = битые данные и осиротевшие локи
+
+# Процесс в состоянии D (uninterruptible sleep) не убить НИЧЕМ,
+# даже -9 — он ждёт мёртвый диск/NFS. Лечится только ребутом.
+ps -eo pid,stat,cmd | grep ' D'
+
+# Влезть в контейнер с упрямым ENTRYPOINT (например ENTRYPOINT=python):
+docker run --entrypoint bash myimage   # перебить entrypoint напрямую
+docker exec -it мой_контейнер bash     # зайти в уже запущенный
+
+# База не успевает чисто остановиться за 10 сек grace period:
+docker stop -t 30 db_container          # дать 30 сек на флаш данных
+
+# В Dockerfile ВСЕГДА exec form — иначе процесс не PID 1
+# и SIGTERM застрянет в sh:
+# CMD ["python", "app.py"]   ✅   а не   CMD python app.py  ❌</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Сеть, доступ, безопасность</span>
+        </div>
+        <pre># Кто слушает порт 8000 (и каким процессом):
+sudo ss -tlnp | grep :8000
+
+# Достучаться до закрытой снаружи БД через SSH-туннель:
+ssh -L 5432:localhost:5432 user@prod-server
+# теперь localhost:5432 на твоей машине = порт 5432 на сервере
+# (port forwarding: прокинуть удалённый порт к себе)
+
+# Аудит SUID-бинарников (через что могут получить root):
+find / -perm -4000 -type f 2>/dev/null   # меньше в списке = безопаснее
+
+# Проверить, какие у файла-ключа права (ssh откажет, если шире 600):
+ls -l ~/.ssh/id_ed25519     # должно быть -rw------- (600)
+
+# Заголовки HTTP-ответа без тела (проверить редирект/код/тип):
+curl -I https://example.com</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Логи, git, спасение</span>
+        </div>
+        <pre># Стримить логи конкретного сервиса systemd + только ошибки:
+journalctl -u nginx -f          # хвост в реальном времени
+journalctl -u nginx -p err      # только уровень error и выше
+journalctl -u nginx --since "10 min ago"
+
+# Логи контейнера/стека:
+docker compose logs -f backend  # стримить логи одного сервиса
+
+# Git: запорол rebase/reset, "потерял" коммиты — НЕ паникуй:
+git reflog                      # машина времени: ВСЕ движения HEAD
+git reset --hard HEAD@{3}       # вернуться на состояние "3 шага назад"
+# reflog видит даже то, что не видит git log — коммиты живут ~90 дней
+
+# Повторять команду и смотреть, как меняется (мониторинг на лету):
+watch -n2 'kubectl get pods'    # обновлять список подов каждые 2 сек</pre>
+      </div>
+
+      <div class="note">
+        <strong>Мини-правила на каждый день:</strong> <code>kill</code> до <code>kill -9</code> (сначала вежливо). Условие на правую таблицу LEFT JOIN — в <code>ON</code>, не в <code>WHERE</code>. В Dockerfile — exec form <code>["cmd","arg"]</code>. Запорол git — <code>git reflog</code> спасёт. Сломался под/сервис — сначала <code>describe</code>/<code>logs</code>/<code>journalctl</code>, потом думать. Принцип least privilege: прав ровно столько, сколько нужно (<code>600</code> на ключи и секреты).
       </div>
 
     </section>
