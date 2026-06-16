@@ -145,7 +145,7 @@
   <h1>DevOps Portfolio</h1>
   <a class="nav-btn" href="notes.html" style="background:#1c2a3a; color:#58a6ff;">📓 Конспекты по темам</a>
   <a class="nav-btn" href="learning_plan.html" style="background:#2d1f0a; color:#ffa657;">🗺 План обучения</a>
-  <p class="muted">Обновлено: 11 июня 2026 &nbsp;|&nbsp; Цель: Junior DevOps</p>
+  <p class="muted">Обновлено: 16 июня 2026 &nbsp;|&nbsp; Цель: Junior DevOps</p>
 
   <!-- ===== ЛЕГЕНДА ===== -->
   <div class="card legend">
@@ -216,20 +216,21 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
   <!-- ===== ГДЕ Я СЕЙЧАС ===== -->
   <h2>📍 Где я сейчас</h2>
   <div class="card">
-    <div class="focus-row"><b>Разбираю:</b> <span>Kubernetes — Pod, Deployment, Service. Параллельно — аудит фундамента (повторяем пройденное вопрос-ответ).</span></div>
-    <div class="focus-row"><b>Стадия:</b> <span><span class="tag">🟡 только зашёл, идёт тяжело</span></span></div>
-    <div class="focus-row"><b>План недели:</b> <span>добить базу K8s (Pod / Deployment / Service / kubectl) и привязать её к тому, что уже знаю — Docker, nginx-upstream, systemd.</span></div>
-    <div class="focus-row" style="margin-top:0.9rem"><b>Недавно узнал:</b></div>
+    <div class="focus-row"><b>Разбираю:</b> <span>Python с нуля — язык, на котором держится весь стек (скрипты, бэкенд, автоматизация). До этого добил практический Bash.</span></div>
+    <div class="focus-row"><b>Стадия:</b> <span><span class="tag">🟡 старт с нуля, синтаксиса ещё не знаю</span></span></div>
+    <div class="focus-row"><b>План недели:</b> <span>основы Python — переменные и типы, условия/циклы, функции — и связать с тем, что уже знаю в Bash (логика одна, синтаксис другой).</span></div>
+    <div class="focus-row" style="margin-top:0.9rem"><b>Недавно узнал (Bash-диагностика):</b></div>
     <ul style="margin-top:0.2rem">
-      <li>🌐 <b>Longest prefix match</b> — пакет идёт по самому <i>конкретному</i> маршруту, <code>default</code> (/0) срабатывает последним.</li>
-      <li>🐳 <b>exec vs shell form</b> в Dockerfile — массив <code>["cmd","arg"]</code> делает процесс PID 1 и тот ловит SIGTERM; shell form вешает сигнал на <code>sh</code>.</li>
-      <li>🗄 <b>LEFT JOIN + WHERE</b> — условие на правую таблицу в <code>WHERE</code> тихо превращает LEFT в INNER (NULL не проходит WHERE).</li>
+      <li>🔎 <b>awk = grep + пинцет</b> — <code>/паттерн/ {print $2}</code>: фильтрует строку И достаёт колонку. <code>NR==2</code> — пропустить шапку, <code>$NF</code> — последнее поле.</li>
+      <li>🧮 <b>Целочисленная арифметика</b> <code>$(( ))</code> — умножай ДО деления (<code>avail*100/total</code>, иначе всегда 0). Дробное (loadavg) считай в <code>awk</code>.</li>
+      <li>📊 <b>Таблица без рамок</b> — <code>printf … | column -t</code> сам ровняет колонки; цвет красим <code>sed</code>'ом ПОСЛЕ выравнивания, иначе ANSI ломает ширину.</li>
     </ul>
   </div>
 
   <h3 style="color:#79c0ff; margin-top:1.5rem">🕰 Летопись</h3>
   <div class="card">
     <ul class="timeline">
+      <li><span class="date">16 июня 2026</span><span class="what">Практический Bash: диагностика системы через <code>/proc</code>, <code>free</code>, <code>df</code>, <code>awk</code>. Собрал боевой <code>healthcheck.sh</code> — память + диск + CPU в одной цветной таблице. Старт Python с нуля.</span></li>
       <li><span class="date">11 июня 2026</span><span class="what">Аудит знаний по всему пройденному + первый заход на Kubernetes. Переделал главную страницу.</span></li>
       <li><span class="date">8 июня 2026</span><span class="what">Terraform (IaC): state, идемпотентность, жизненный цикл. Git Advanced: rebase, reflog, cherry-pick, bisect.</span></li>
       <li><span class="date">5 июня 2026</span><span class="what">Сеть и SSH (CIDR, маршруты, firewalld, туннели). nginx как reverse proxy + ловушка SELinux на Fedora.</span></li>
@@ -256,12 +257,14 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
           <li>Сеть: CIDR и маршрутизация считает на лету</li>
           <li>Git: merge vs rebase и «золотое правило» — чётко</li>
           <li>SQL JOIN'ы и капкан NULL — понимает, а не зубрит</li>
+          <li>Bash: функции, <code>awk</code>, диагностика системы — пишет боевые скрипты, а не копипастит</li>
           <li>Учится через аналогии и упорно докапывается до «почему»</li>
         </ul>
       </div>
       <div class="cons">
         <h3>🔧 Над чем работаем</h3>
         <ul>
+          <li>Python — старт с нуля (язык под всем стеком, нужен срочно)</li>
           <li>Kubernetes — пока тяжело (много абстракций разом)</li>
           <li>PromQL и Grafana — теория есть, практики мало</li>
           <li>EXPLAIN ANALYZE и индексы — нужно потрогать руками</li>
@@ -337,11 +340,25 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
         ['depends_on / healthcheck', 'yellow'],
         ['volumes и сети', 'yellow'],
       ]],
-      ['⚡ FastAPI / Python', [
-        ['Структура приложения, эндпоинты', 'green'],
-        ['HTTP-методы', 'yellow'],
-        ['Метрики prometheus-client', 'yellow'],
-        ['Bash-скрипты, sed, cron', 'yellow'],
+      ['📜 Bash / скрипты', [
+        ['Переменные, кавычки, $(...)', 'green'],
+        ['if / case, [[ ]] vs (( ))', 'green'],
+        ['Циклы for/while + арифметика', 'green'],
+        ['Функции, local, DRY', 'green'],
+        ['set -euo pipefail + trap', 'green'],
+        ['Валидация ввода (regex)', 'green'],
+        ['awk / grep / sed / tr', 'yellow'],
+        ['Диагностика: /proc, free, df → healthcheck.sh', 'green'],
+        ['cron (расписание задач)', 'empty'],
+      ]],
+      ['🐍 Python', [
+        ['Синтаксис, переменные, типы', 'empty'],
+        ['Условия и циклы', 'empty'],
+        ['Функции, модули, импорты', 'empty'],
+        ['Файлы, os/sys, аргументы', 'empty'],
+        ['FastAPI: приложение, эндпоинты', 'green'],
+        ['FastAPI: HTTP-методы', 'yellow'],
+        ['prometheus-client метрики', 'yellow'],
       ]],
       ['🗄 SQL / PostgreSQL', [
         ['Базовые запросы, миграции', 'green'],

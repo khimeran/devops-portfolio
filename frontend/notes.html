@@ -2535,6 +2535,93 @@ fi</pre>
       <div class="note">
         <strong>Итог темы:</strong> управляющий скелет bash. <code>[ ]</code> — это команда <code>test</code>, отсюда обязательные пробелы внутри и сравнение чисел БУКВАМИ (<code>-eq -lt -gt</code>), а не <code>&gt;</code>/<code>&lt;</code> (это редирект!). <code>if/elif/else</code> для диапазонов — от большего порога к меньшему. <code>case</code>: ветки через <code>;;</code> (двойная!), <code>*)</code> default, <code>esac</code> в конце; диапазоны не умеет. Циклы <code>for</code>/<code>while</code> + <code>do/done</code>, математика только в <code>$(( ))</code>, в <code>while</code> двигай счётчик иначе бесконечность. Функции: <code>name() { …; }</code>, аргументы <code>$1 $2</code>, данные возвращают через <code>echo</code> + <code>$(…)</code>, а <code>return</code> — только статус. Ввод — <code>read -p</code>. Валидация — регулярка <code>[[ "$x" =~ ^[0-9]+$ ]]</code> (ловит пусто и не-числа). Ведущий ноль = восьмеричная в <code>$(( ))</code> → нормализуй через <code>$((10#$x))</code>. Чтобы переспрашивать вместо падения — <code>while true</code> + <code>continue</code>/<code>break</code>.
       </div>
+
+      <h3>Боевой healthcheck.sh — состояние машины одной командой</h3>
+
+      <div class="note">
+        <strong>⭐ Важно для девопс:</strong> это <strong>главный скрипт каждого девопса</strong>. Зашёл на незнакомую машину — не надо вручную отсматривать <code>free -h</code>, потом <code>df -h</code>, потом <code>top</code> и в голове сводить три разных вывода. Один <code>./healthcheck.sh</code> — и всё состояние (память, диск, CPU) в одной ровной таблице, в едином языке «занято %», с цветовым светофором. Кидаешь файл на любой сервер, запускаешь — и за секунду видишь, где жопа. Дальше прикручивается в <code>cron</code> + алерт.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>healthcheck.sh — память + диск + CPU в одной таблице</span>
+        </div>
+        <pre>#!/bin/bash
+set -euo pipefail
+
+# Единые пороги занятости (%) для ВСЕХ метрик
+WARN_PCT=75   # жёлтая зона
+CRIT_PCT=90   # красная зона
+
+# Цвета: $'...' раскрывает \033 в реальный ANSI-байт сразу при присвоении
+RED=$'\033[31m'; YEL=$'\033[33m'; GRN=$'\033[32m'; RST=$'\033[0m'
+
+# DRY: одна функция статуса на все метрики. Вход — занятый %, выход — слово.
+status_for() {
+    local pct=$1
+    if   (( pct &gt; CRIT_PCT )); then echo "ОПАСНО"
+    elif (( pct &gt; WARN_PCT )); then echo "ВНИМАНИЕ"
+    else                            echo "ХОРОШО"
+    fi
+}
+
+check_mem() {
+    local total avail used_pct used_gb total_gb status
+    total=$(awk '/MemTotal/     {print $2}' /proc/meminfo)
+    avail=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+    used_pct=$(( (total - avail) * 100 / total ))   # ЗАНЯТО = (всего-доступно)/всего
+    used_gb=$(( (total - avail) / 1048576 ))         # kB -> GB (1024*1024)
+    total_gb=$(( total / 1048576 ))
+    status=$(status_for "$used_pct")
+    printf "Память|%s%%|%s|%sG из %sG\n" "$used_pct" "$status" "$used_gb" "$total_gb"
+}
+
+check_disk() {
+    local used_pct used_gb total_gb status
+    # -BG = размеры сразу в гигабайтах (надёжнее -h, где единицы плавают M/G/T)
+    used_pct=$(df -BG / | awk 'NR==2 {print $5}' | tr -d '%')
+    used_gb=$(df -BG /  | awk 'NR==2 {print $3}' | tr -d 'G')
+    total_gb=$(df -BG / | awk 'NR==2 {print $2}' | tr -d 'G')
+    status=$(status_for "$used_pct")
+    printf "Диск /|%s%%|%s|%sG из %sG\n" "$used_pct" "$status" "$used_gb" "$total_gb"
+}
+
+check_cpu() {
+    local cores load used_pct status
+    cores=$(nproc)                                   # число ядер
+    load=$(awk '{print $1}' /proc/loadavg)           # нагрузка за 1 мин (ДРОБНОЕ!)
+    # load дробный -> bash-арифметика не умеет, считаем в awk, %d округляет до целого
+    used_pct=$(awk -v c="$cores" '{printf "%d", $1*100/c}' /proc/loadavg)
+    status=$(status_for "$used_pct")
+    printf "CPU|%s%%|%s|load %s на %s ядер\n" "$used_pct" "$status" "$load" "$cores"
+}
+
+# column выравнивает по ГОЛОМУ тексту, и только ПОТОМ sed красит слова-статусы
+# -> ANSI-коды не ломают ширину колонок (главный трюк с цветом в таблице).
+{
+    echo "МЕТРИКА|ЗАНЯТО|СТАТУС|ДЕТАЛИ"
+    check_mem
+    check_disk
+    check_cpu
+} | column -t -s '|' \
+  | sed -e "s/ОПАСНО/${RED}ОПАСНО${RST}/" \
+        -e "s/ВНИМАНИЕ/${YEL}ВНИМАНИЕ${RST}/" \
+        -e "s/ХОРОШО/${GRN}ХОРОШО${RST}/"</pre>
+      </div>
+
+      <div class="note">
+        <strong>Приёмы и грабли (новое в этом скрипте):</strong>
+        <br>• <strong>Источники правды:</strong> <code>/proc/meminfo</code> (память, чистые kB), <code>df -BG /</code> (диск), <code>/proc/loadavg</code> + <code>nproc</code> (CPU). <code>/proc</code> — это не файлы, а кишки ядра, отданные текстом.
+        <br>• <strong>Единый язык «занято %»:</strong> одна колонка = одна метрика во всех строках. Память даёт <em>свободно</em> (<code>MemAvailable</code>) → переворачиваем в занято: <code>(всего-доступно)*100/всего</code>. Иначе таблица врёт читателю.
+        <br>• <strong>💀 Целочисленная арифметика:</strong> <code>$(( ))</code> умеет только целые. Умножай ДО деления (<code>avail*100/total</code>, не <code>avail/total*100</code> — иначе всегда 0). Дробное (loadavg <code>0.25</code>) считай в <code>awk</code> — ему на float плевать.
+        <br>• <strong><code>(( ))</code> vs <code>[ ]</code>:</strong> для чисел — арифметический <code>(( a &gt; b ))</code> (по-человечески, без <code>-gt</code> и без <code>$</code>). <code>[ ]</code>/<code>[[ ]]</code> — для строк и файлов.
+        <br>• <strong><code>awk</code> = grep + пинцет:</strong> <code>/паттерн/ {action}</code>. <code>$2</code> — 2-я колонка, <code>$NF</code> — последняя, <code>NR==2</code> — только 2-я строка (пропустить шапку <code>df</code>). grep перед awk не нужен — паттерн уже фильтрует.
+        <br>• <strong><code>tr -d '%'</code> / <code>tr -d 'G'</code>:</strong> срезать прилипший символ, иначе <code>"44%"</code> не число и арифметика падает. <code>df -BG</code> (а не <code>-h</code>) фиксирует единицы в гигах, чтобы <code>tr -d 'G'</code> не промахнулся.
+        <br>• <strong>Таблица без рисования рамок:</strong> <code>printf "a|b|c\n"</code> + <code>column -t -s '|'</code> сам выравнивает колонки. Рамки из символов руками не рисуют — это понты, которые съезжают.
+        <br>• <strong>🪄 Цвет + column:</strong> ANSI-коды ломают выравнивание <code>column</code> (он считает их за символы). Лечится порядком: сперва <code>column</code> по голому тексту, ПОТОМ <code>sed</code> красит готовую таблицу.
+        <br>• <strong>Гигиена функций:</strong> <code>local</code> для всех переменных внутри — иначе они глобальные и функции затирают друг другу <code>proc</code>/<code>status</code>. Функция должна быть автономным «чемоданом с ручкой».
+      </div>
     </section>
 
     <!-- NETWORK & SSH -->
