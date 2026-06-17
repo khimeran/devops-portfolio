@@ -145,7 +145,7 @@
   <h1>DevOps Portfolio</h1>
   <a class="nav-btn" href="notes.html" style="background:#1c2a3a; color:#58a6ff;">📓 Конспекты по темам</a>
   <a class="nav-btn" href="learning_plan.html" style="background:#2d1f0a; color:#ffa657;">🗺 План обучения</a>
-  <p class="muted">Обновлено: 16 июня 2026 &nbsp;|&nbsp; Цель: Junior DevOps</p>
+  <p class="muted">Обновлено: 17 июня 2026 &nbsp;|&nbsp; Цель: Junior DevOps</p>
 
   <!-- ===== ЛЕГЕНДА ===== -->
   <div class="card legend">
@@ -216,20 +216,21 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
   <!-- ===== ГДЕ Я СЕЙЧАС ===== -->
   <h2>📍 Где я сейчас</h2>
   <div class="card">
-    <div class="focus-row"><b>Разбираю:</b> <span>Python с нуля — язык, на котором держится весь стек (скрипты, бэкенд, автоматизация). До этого добил практический Bash.</span></div>
-    <div class="focus-row"><b>Стадия:</b> <span><span class="tag">🟡 старт с нуля, синтаксиса ещё не знаю</span></span></div>
-    <div class="focus-row"><b>План недели:</b> <span>основы Python — переменные и типы, условия/циклы, функции — и связать с тем, что уже знаю в Bash (логика одна, синтаксис другой).</span></div>
-    <div class="focus-row" style="margin-top:0.9rem"><b>Недавно узнал (Bash-диагностика):</b></div>
+    <div class="focus-row"><b>Разбираю:</b> <span>Python — не синтаксис, а <b>модель языка</b>: объекты, переменные-ярлыки, типы. Параллельно строю монитор сервисов на <code>requests</code>.</span></div>
+    <div class="focus-row"><b>Стадия:</b> <span><span class="tag">🟡 уложил фундамент, логика языка щёлкнула</span></span></div>
+    <div class="focus-row"><b>План недели:</b> <span>закрепить модель Python на боевой задаче — монитор сайтов (список + цикл + таблица), дальше парсинг (BeautifulSoup) и отчёт в Excel (pandas).</span></div>
+    <div class="focus-row" style="margin-top:0.9rem"><b>Недавно узнал (фундамент Python):</b></div>
     <ul style="margin-top:0.2rem">
-      <li>🔎 <b>awk = grep + пинцет</b> — <code>/паттерн/ {print $2}</code>: фильтрует строку И достаёт колонку. <code>NR==2</code> — пропустить шапку, <code>$NF</code> — последнее поле.</li>
-      <li>🧮 <b>Целочисленная арифметика</b> <code>$(( ))</code> — умножай ДО деления (<code>avail*100/total</code>, иначе всегда 0). Дробное (loadavg) считай в <code>awk</code>.</li>
-      <li>📊 <b>Таблица без рамок</b> — <code>printf … | column -t</code> сам ровняет колонки; цвет красим <code>sed</code>'ом ПОСЛЕ выравнивания, иначе ANSI ломает ширину.</li>
+      <li>🏷️ <b>Переменная = стикер на объект, а не коробка</b> — отсюда динамическая типизация: тип живёт у значения, не у переменной.</li>
+      <li>🔑 <b>Точка = «залезь в объект»; библиотека = объект с функциями</b> — их не зубрят, а исследуют фонариками <code>type()</code> / <code>dir()</code> / <code>help()</code>.</li>
+      <li>🔗 <b>Цепочки методов = пайпы</b> (<code>s.strip().upper()</code>), но следи за типом на каждом звене. <code>try/except</code> ловит падения, чтоб мёртвый сайт не ронял скрипт.</li>
     </ul>
   </div>
 
   <h3 style="color:#79c0ff; margin-top:1.5rem">🕰 Летопись</h3>
   <div class="card">
     <ul class="timeline">
+      <li><span class="date">17 июня 2026</span><span class="what">Python — фундамент языка: 5 законов (всё — объект, переменная-ярлык, динамическая типизация), <code>venv</code>/<code>pip</code>, фонарики <code>type/dir/help</code>, цепочки методов, <code>try/except</code> и чтение traceback. Начал монитор сервисов на <code>requests</code>.</span></li>
       <li><span class="date">16 июня 2026</span><span class="what">Практический Bash: диагностика системы через <code>/proc</code>, <code>free</code>, <code>df</code>, <code>awk</code>. Собрал боевой <code>healthcheck.sh</code> — память + диск + CPU в одной цветной таблице. Старт Python с нуля.</span></li>
       <li><span class="date">11 июня 2026</span><span class="what">Аудит знаний по всему пройденному + первый заход на Kubernetes. Переделал главную страницу.</span></li>
       <li><span class="date">8 июня 2026</span><span class="what">Terraform (IaC): state, идемпотентность, жизненный цикл. Git Advanced: rebase, reflog, cherry-pick, bisect.</span></li>
@@ -264,7 +265,7 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
       <div class="cons">
         <h3>🔧 Над чем работаем</h3>
         <ul>
-          <li>Python — старт с нуля (язык под всем стеком, нужен срочно)</li>
+          <li>Python — фундамент уложен, нужна практика (свой код, функции, файлы)</li>
           <li>Kubernetes — пока тяжело (много абстракций разом)</li>
           <li>PromQL и Grafana — теория есть, практики мало</li>
           <li>EXPLAIN ANALYZE и индексы — нужно потрогать руками</li>
@@ -352,10 +353,13 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
         ['cron (расписание задач)', 'empty'],
       ]],
       ['🐍 Python', [
-        ['Синтаксис, переменные, типы', 'empty'],
-        ['Условия и циклы', 'empty'],
-        ['Функции, модули, импорты', 'empty'],
-        ['Файлы, os/sys, аргументы', 'empty'],
+        ['Модель языка: объекты, ярлыки, типы', 'yellow'],
+        ['Строки, методы, цепочки', 'yellow'],
+        ['Условия и циклы (if / for)', 'yellow'],
+        ['try / except, чтение traceback', 'yellow'],
+        ['import, библиотеки (requests)', 'yellow'],
+        ['venv, pip — окружение', 'green'],
+        ['Функции, файлы, os/sys', 'empty'],
         ['FastAPI: приложение, эндпоинты', 'green'],
         ['FastAPI: HTTP-методы', 'yellow'],
         ['prometheus-client метрики', 'yellow'],

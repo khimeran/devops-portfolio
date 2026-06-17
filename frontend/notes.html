@@ -3997,6 +3997,140 @@ docker compose restart db    # перезапустить конкретный �
     </section>
 
     <!-- FASTAPI -->
+    <!-- PYTHON -->
+    <section id="python">
+      <h1>🐍 Python — язык и его законы</h1>
+      <p>Учим Python с прицелом на парсинг, автоматизацию и API. Главное на старте — не зубрить библиотеки, а понять <strong>модель языка</strong>: на ней всё держится, и любая библиотека читается одинаково.</p>
+
+      <div class="note">
+        <strong>Перепрошивка мозга с Delphi/Pascal:</strong> Python динамический и интерпретируемый. Нет <code>var</code>-объявлений, нет типов у переменных, нет <code>begin/end</code> — блок задаётся <strong>отступом</strong> (4 пробела, не мешать с табами). Если «логика ломается» — почти всегда упёрся в Закон 2.
+      </div>
+
+      <h2>5 фундаментальных законов</h2>
+
+      <div class="note">
+        <strong>Закон 1. ВСЁ — объект.</strong> Число, строка, список, функция, даже тип — всё объекты со своими методами. Поэтому точка <code>.</code> работает у всего: <code>"привет".upper()</code>, <code>(5).bit_length()</code>. Видишь <code>что-то.что-то()</code> — это «залезь в объект и вызови его метод».
+      </div>
+
+      <div class="note">
+        <strong>Закон 2. Переменная — ЯРЛЫК, а не коробка 🏷️ (самый важный).</strong><br>
+        Delphi: <code>x: Integer; x := 5</code> — коробка фиксированного типа. Python: <code>x = 5</code> — <strong>стикер <code>x</code></strong> наклеен на объект <code>5</code> в памяти. Переменная не хранит значение, а <strong>ссылается</strong> на него. Поэтому переклеить бирку на что угодно — норма.
+      </div>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>стикер можно переклеить</span></div>
+        <pre>x = 5
+x = "теперь строка"
+x = [1, 2, 3]
+# не ошибка! один стикер x тычет в разные объекты</pre>
+      </div>
+
+      <div class="note">
+        <strong>Закон 3. Типов у переменных нет — типы у ЗНАЧЕНИЙ.</strong> Следствие Закона 2: тип живёт в объекте, не в стикере. Тип не объявляешь — Python смотрит на значение (динамическая типизация). Вот почему <code>"5" + 3</code> падает: важны типы значений в момент операции, а не «что в переменной».
+      </div>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>тип идёт за значением</span></div>
+        <pre>x = 5
+type(x)        # &lt;class 'int'&gt;
+x = "привет"
+type(x)        # &lt;class 'str'&gt;  — тот же x, другой тип</pre>
+      </div>
+
+      <div class="note">
+        <strong>Закон 4. Нет объявлений; присваивание создаёт имя; читать несозданное нельзя.</strong> Первое <code>x = 5</code> одновременно создаёт стикер и вешает на значение. Читаешь имя, которого не присваивал → <code>NameError</code> (аналог <code>set -u</code> в bash).
+      </div>
+
+      <div class="note">
+        <strong>Закон 5. Точка <code>.</code> = «залезь в объект». Библиотека — тоже объект с функциями 🔑.</strong><br>
+        <code>import requests</code> делает <code>requests</code> объектом-коробкой; <code>requests.get()</code> = «в коробке найди функцию get и вызови». <strong>Библиотеки не зубрят</strong> — берут 2-3 нужные функции и смотрят, что вернулось (а вернётся снова объект, в который снова тыкаешь точкой). Рекурсивно одинаково.
+      </div>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>тык точкой — везде один закон</span></div>
+        <pre>import math
+math.sqrt(16)     # в коробке math → функция sqrt
+math.pi           # в коробке math → значение
+
+import requests
+r = requests.get("https://github.com")
+r.status_code     # тык точкой в объект Response — ТА ЖЕ механика</pre>
+      </div>
+
+      <h2>Три фонарика: type / dir / help</h2>
+      <p>Раз всё — объект, любой объект исследуется прямо в REPL, не зная библиотеки наизусть.</p>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>как ковырять незнакомое</span></div>
+        <pre>type(x)          # ЧТО это? → класс/тип
+dir(x)           # ЧТО умеет? → список всех методов и свойств
+help(str.upper)  # КАК работает конкретный метод?</pre>
+      </div>
+      <div class="note">
+        <strong>Изучать библиотеку без интернета:</strong> импортировал → <code>dir()</code> глянул методы → <code>help()</code> прочитал нужный. В <code>dir()</code> имена с <code>__двойными__</code> подчёркиваниями (дандеры) — служебные; операторы это обёртки над ними: <code>a + b</code> зовёт <code>a.__add__(b)</code>, <code>len(x)</code> зовёт <code>x.__len__()</code>. Поэтому <code>"5"+"3"="53"</code>, а <code>5+3=8</code> — у <code>str</code> и <code>int</code> разный <code>__add__</code>.
+      </div>
+
+      <h2>Методы строк: встроенный инструментарий</h2>
+      <p>То, за чем в bash бегал к внешним утилитам, у строки-объекта встроено методом:</p>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>bash-утилита → метод строки</span></div>
+        <pre>s = "  Привет, Мир  "
+s.strip()                # tr -d ' ' / обрезать края
+s.upper()                # tr a-z A-Z
+s.replace("Мир", "Py")   # sed 's/Мир/Py/'
+s.split(",")             # cut -d, / awk -F,  → возвращает СПИСОК
+"мир" in s.lower()       # grep -q → True/False</pre>
+      </div>
+      <div class="note">
+        <strong>Неизменяемость строк:</strong> <code>s.upper()</code> не меняет <code>s</code>, а <strong>возвращает новую строку</strong>. Хочешь сохранить — присвой: <code>s = s.strip()</code>.
+      </div>
+
+      <h2>Цепочки методов = пайпы</h2>
+      <p>Метод вернул объект → на нём сразу зовёшь следующий. Читается слева направо, как <code>|</code> в bash.</p>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>цепочка и капкан типов</span></div>
+        <pre>s.strip().upper().split()   # str → str → str → list (работает)
+
+s.split().upper()           # split вернул LIST, у списка нет .upper()
+# 💥 AttributeError: 'list' object has no attribute 'upper'</pre>
+      </div>
+      <div class="note">
+        <strong>Капкан цепочки:</strong> работает, только если предыдущее звено вернуло объект, у которого есть следующий метод. Не уверен, что вернулось — проверь <code>type(...)</code>. Прямой аналог пайпа: нельзя сунуть в команду то, что она не ест.
+      </div>
+
+      <h2>Аргументы: обязательные и со значением по умолчанию</h2>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>сигнатура: метод(обязат, необязат=дефолт)</span></div>
+        <pre>help(str.split)   # split(sep=None, maxsplit=-1)
+# = в сигнатуре = аргумент необязательный (есть дефолт)
+# sep=None → дефолт = резать по пробелам
+
+"a,b,c".split()       # ['a,b,c']       (нет пробелов — не порезал)
+"a,b,c".split(",")    # ['a','b','c']   (режем по запятой)
+
+requests.get(url, timeout=5)
+# url — обязательный, timeout=5 — необязательный (переопределили дефолт)</pre>
+      </div>
+
+      <h2>Обработка ошибок: try / except</h2>
+      <p>Ошибка времени выполнения = <strong>исключение</strong>. Не пойман — скрипт падает целиком. Пойман — продолжает жить.</p>
+      <div class="code-block">
+        <div class="code-header"><span class="lang">PYTHON</span><span>monitor.py — мёртвый сайт не роняет скрипт</span></div>
+        <pre>try:
+    r = requests.get(url, timeout=5)   # пробуем
+    code = r.status_code
+    status = "OK" if r.ok else "FAIL"  # тернарный: знач_да if условие else знач_нет
+except requests.exceptions.RequestException as e:
+    code = "-"                          # сайт мёртв → аварийные значения
+    status = "DOWN"                     # скрипт НЕ падает
+print(url, "|", code, "|", status)</pre>
+      </div>
+      <div class="note">
+        <strong>Как читать traceback:</strong> 90% портянки — кишки библиотек (<code>site-packages/...</code>), игнорь. Ищи <strong>свой</strong> файл и <strong>последнюю строку</strong> — там тип и суть ошибки. Ловят родителя <code>RequestException</code> — он покрывает потомков (<code>ConnectionError</code>, <code>Timeout</code>...). Наследование как в Delphi: поймал предка — поймал всех.
+      </div>
+
+      <div class="note">
+        <strong>⭐ Важно для девопс:</strong> правило выбора — <strong>bash дёргает команды, Python ворочает данные</strong>. Склеить 3-4 системные команды → bash. Появились структуры (JSON, API, парсинг, много логики, обработка ошибок) → Python. Зависимости — всегда через <code>venv</code> (свой «холодильник» с библиотеками на проект, система чистая; <code>pip install</code> внутрь, <code>import</code> в коде).
+      </div>
+    </section>
+
+    <!-- FASTAPI -->
     <section id="fastapi">
       <h1>FastAPI — бэкенд на Python</h1>
       <p>FastAPI — фреймворк для создания API на Python. Быстрый, современный, автоматически генерирует документацию.</p>
