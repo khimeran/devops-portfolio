@@ -934,5 +934,74 @@
     });
   </script>
 
+
+  <!-- 🐦 кнопка «в начало страницы» -->
+  <style>
+    .fab-top {
+      position: fixed; right: 1.4rem; bottom: 1.4rem; z-index: 50;
+      display: flex; align-items: center; flex-direction: row-reverse;
+      background: #161b22; border: 1px solid #30363d; color: #79c0ff;
+      border-radius: 999px; padding: 0.5rem 0.7rem; cursor: pointer;
+      opacity: 0.45; font-family: inherit;
+      transition: opacity 0.25s, border-color 0.2s;
+    }
+    .fab-top.hidden { opacity: 0; pointer-events: none; }
+    .fab-top:hover { opacity: 1; border-color: #58a6ff; }
+    .fab-top .fab-icon { font-size: 1.25rem; line-height: 1; display: inline-block; }
+    .fab-top .fab-label {
+      max-width: 0; overflow: hidden; white-space: nowrap;
+      font-size: 0.85rem; color: #e6edf3;
+      transition: max-width 0.25s ease, margin 0.25s ease;
+    }
+    .fab-top:hover .fab-label { max-width: 220px; margin-right: 0.45rem; }
+    .fab-top.landed .fab-icon { animation: fab-land 0.5s ease; }
+    @keyframes fab-land {
+      0%   { transform: translateY(-10px) scale(1.35); }
+      55%  { transform: translateY(3px) scale(0.9); }
+      100% { transform: none; }
+    }
+  </style>
+  <button class="fab-top hidden" id="fabTop" title="В начало страницы">
+    <span class="fab-icon">🐦</span><span class="fab-label">В начало страницы</span>
+  </button>
+  <script>
+    (function () {
+      const btn = document.getElementById('fabTop');
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      window.addEventListener('scroll', () => {
+        btn.classList.toggle('hidden', window.scrollY < 350);
+      });
+      btn.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (reduceMotion) return;
+        const icon = btn.querySelector('.fab-icon');
+        const r = icon.getBoundingClientRect();
+        const ghost = icon.cloneNode(true);
+        Object.assign(ghost.style, {
+          position: 'fixed', left: r.left + 'px', top: r.top + 'px',
+          margin: 0, zIndex: 99, pointerEvents: 'none', fontSize: '1.35rem'
+        });
+        document.body.appendChild(ghost);
+        icon.style.visibility = 'hidden';
+        const tx = 90 - r.left, ty = 60 - r.top;
+        const anim = ghost.animate([
+          { transform: 'translate(0,0) rotate(0deg)', offset: 0 },
+          { transform: `translate(${tx * 0.22}px, ${ty * 0.65}px) rotate(-24deg)`, offset: 0.18 },
+          { transform: `translate(${tx * 0.62}px, ${ty * 1.18}px) rotate(10deg)`, offset: 0.38 },
+          { transform: `translate(${tx}px, ${ty}px) rotate(-8deg)`, offset: 0.52 },
+          { transform: `translate(${tx}px, ${ty}px) scaleX(-1) rotate(0deg)`, offset: 0.60 },
+          { transform: `translate(${tx * 0.45}px, ${ty * 0.45 - 70}px) scaleX(-1) rotate(14deg)`, offset: 0.80 },
+          { transform: 'translate(0,0) scaleX(-1) rotate(0deg)', offset: 0.95 },
+          { transform: 'translate(0,0) scaleX(1) rotate(0deg)', offset: 1 }
+        ], { duration: 2000, easing: 'ease-in-out' });
+        anim.onfinish = () => {
+          ghost.remove();
+          icon.style.visibility = '';
+          btn.classList.add('landed');
+          setTimeout(() => btn.classList.remove('landed'), 500);
+        };
+      });
+    })();
+  </script>
 </body>
 </html>

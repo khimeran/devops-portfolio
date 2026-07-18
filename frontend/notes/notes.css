@@ -189,7 +189,7 @@
       border: 1px solid #30363d;
       color: #79c0ff;
       border-radius: 999px;
-      padding: 0.55rem 0.75rem;
+      padding: 0.5rem 0.7rem;
       cursor: pointer;
       opacity: 0.45;
       font-family: inherit;
@@ -199,7 +199,11 @@
       opacity: 1;
       border-color: #58a6ff;
     }
-    .fab-icon { font-size: 1.1rem; line-height: 1; }
+    .fab-icon {
+      font-size: 1.25rem;
+      line-height: 1;
+      display: inline-block;
+    }
     .fab-label {
       max-width: 0;
       overflow: hidden;
@@ -209,6 +213,13 @@
       transition: max-width 0.25s ease, margin 0.25s ease;
     }
     .fab:hover .fab-label, .fab:focus-visible .fab-label {
-      max-width: 200px;
+      max-width: 220px;
       margin-right: 0.45rem;
+    }
+    /* приземление: подпрыгнуть и усесться */
+    .fab.landed .fab-icon { animation: fab-land 0.5s ease; }
+    @keyframes fab-land {
+      0%   { transform: translateY(-10px) scale(1.35); }
+      55%  { transform: translateY(3px) scale(0.9); }
+      100% { transform: none; }
     }
