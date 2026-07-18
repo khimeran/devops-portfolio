@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — Docker — контейнеризация</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="docker">
+      <h1>Docker — контейнеризация</h1>
+      <p>Docker упаковывает приложение со всеми зависимостями в контейнер. Контейнер работает одинаково на любом компьютере — у тебя, у коллеги, на сервере.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Контейнер — как коробка с пиццей. Внутри всё что нужно: тесто, начинка, соус. Открыл коробку в любом месте — пицца одинаковая.
+      </div>
+
+      <h2 id="docker-s0">Dockerfile — инструкция сборки</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DOCKERFILE</span>
+          <span>backend/Dockerfile</span>
+        </div>
+        <pre>FROM python:3.12-slim
+# FROM — взять готовый образ как основу
+# python:3.12-slim — Python 3.12, slim = облегчённая версия
+
+WORKDIR /app
+# WORKDIR — все команды выполнять в /app внутри контейнера
+
+COPY requirements.txt .
+# COPY откуда куда
+# . означает текущую папку = /app
+
+RUN pip install -r requirements.txt
+# RUN — выполнить команду во время сборки
+# pip — менеджер пакетов Python
+
+COPY . .
+# копировать весь код — делаем после pip install
+# чтобы при изменении кода не переустанавливать библиотеки
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# CMD — запустить при старте контейнера
+# 0.0.0.0 — слушать все сетевые интерфейсы</pre>
+      </div>
+
+      <h2 id="docker-s1">Основные команды</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Управление контейнерами</span>
+        </div>
+        <pre>docker ps                    # запущенные контейнеры
+docker ps -a                 # все включая остановленные
+docker logs имя_контейнера   # логи контейнера
+docker volume ls             # список volumes
+docker volume prune          # удалить неиспользуемые volumes</pre>
+      </div>
+
+      <h2 id="docker-s2">Типичные ошибки</h2>
+
+      <div class="error-block">
+        <div class="title">Permission denied — нет доступа к папке</div>
+        <pre>ls: cannot open directory '/docker-entrypoint-initdb.d/': Permission denied</pre>
+        <p>Причина: SELinux блокирует доступ контейнера к папке на хосте (Fedora).</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — добавить :z к volume</div>
+        <pre>volumes:
+  - ./db:/docker-entrypoint-initdb.d:z
+# :z — метка для SELinux: разреши контейнеру читать папку</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Port already in use — порт занят</div>
+        <pre>failed to bind host port 0.0.0.0:3000/tcp: address already in use</pre>
+        <p>Причина: другая программа уже использует этот порт.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — найти и сменить порт</div>
+        <pre>ss -tlnp | grep 3000    # найти что занимает порт
+
+# изменить левый порт в docker-compose.yml
+ports:
+  - "3030:3000"   # Grafana теперь на localhost:3030</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> <code>image:</code> берёт готовый образ с Docker Hub, <code>build:</code> собирает из Dockerfile. Используй image для стандартных сервисов (PostgreSQL, Redis), build — только для своего кода.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

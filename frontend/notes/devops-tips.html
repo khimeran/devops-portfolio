@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — ⚡ Важно для DevOps</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="devops-tips">
+      <h1>⚡ Важно для DevOps</h1>
+      <p>Универсальный справочник — инструменты, подходы и хитрости которые нужны в работе независимо от проекта. Раздел пополняется по мере работы.</p>
+
+      <div class="note">
+        <strong>Главная задача DevOps:</strong> приложение должно работать стабильно, быстро восстанавливаться после сбоев, и любой инженер должен разобраться в проблеме за минуты — не часы. Тебе неважно на чём написано приложение — важно чтобы оно запускалось, мониторилось и чинилось.
+      </div>
+
+      <h2 id="devops-tips-s0">Операционные системы</h2>
+      <p>DevOps работает преимущественно с Linux — большинство серверов в мире работают на нём. Windows используется на рабочих машинах разработчиков.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Популярные дистрибутивы Linux</span>
+        </div>
+        <pre>Ubuntu / Debian    — самые популярные, много документации
+                   apt install пакет — менеджер пакетов
+
+Fedora / RHEL /    — корпоративный стандарт, есть SELinux
+CentOS / Rocky     dnf install пакет — менеджер пакетов
+                   используется в крупных компаниях
+
+Alpine Linux       — минималистичный, часто внутри Docker образов
+                   apk add пакет — менеджер пакетов
+                   размер образа ~5MB против ~100MB у Ubuntu
+
+Arch Linux         — для продвинутых, всегда свежие пакеты
+                   pacman -S пакет</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Windows для DevOps</span>
+        </div>
+        <pre>WSL2 (Windows Subsystem for Linux)
+— полноценный Linux внутри Windows
+— можно запускать Docker, bash скрипты, всё то же что на Linux
+— установка: wsl --install в PowerShell от администратора
+
+PowerShell — мощная замена CMD, есть аналоги Linux команд
+— ls, cd, cat, grep (Select-String) работают похоже
+— но синтаксис отличается от bash
+
+Git Bash — bash эмулятор для Windows, устанавливается с Git
+— позволяет использовать Linux команды на Windows</pre>
+      </div>
+
+      <h2 id="devops-tips-s1">Текстовые редакторы в терминале</h2>
+      <p>Иногда нет графического интерфейса — только терминал. Нужно уметь редактировать файлы прямо в нём.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>nano — простой редактор для новичков</span>
+        </div>
+        <pre>nano файл.txt          # открыть файл
+
+# Управление внутри nano:
+Ctrl+O → Enter         # сохранить (O = Output)
+Ctrl+X                 # выйти
+Ctrl+K                 # удалить строку
+Ctrl+W                 # поиск по файлу
+Ctrl+G                 # справка
+
+# Внизу экрана всегда видны подсказки — ^ означает Ctrl</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>vim — мощный редактор, нужно знать основы</span>
+        </div>
+        <pre>vim файл.txt           # открыть файл
+
+# vim работает в режимах:
+i                      # войти в режим вставки (можно печатать)
+Esc                    # выйти из режима вставки
+:w                     # сохранить
+:q                     # выйти
+:wq                    # сохранить и выйти
+:q!                    # выйти без сохранения
+
+# В режиме команд (после Esc):
+dd                     # удалить строку
+yy                     # скопировать строку
+p                      # вставить
+/слово                 # найти слово
+n                      # следующее совпадение
+
+# Лайфхак: если случайно открыл vim и не знаешь как выйти
+Esc → :q! → Enter      # аварийный выход без сохранения</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>mc (Midnight Commander) — файловый менеджер в терминале</span>
+        </div>
+        <pre>mc                     # запустить
+
+# mc показывает два окна с файлами — как Total Commander
+# управление:
+F4                     # редактировать файл
+F5                     # копировать
+F6                     # переместить
+F8                     # удалить
+F10                    # выйти
+Tab                    # переключиться между панелями
+
+# установка:
+apt install mc         # Ubuntu/Debian
+dnf install mc         # Fedora/RHEL</pre>
+      </div>
+
+      <h2 id="devops-tips-s2">VS Code — всё в одном</h2>
+      <p>VS Code — не просто редактор кода. Для DevOps это полноценная рабочая среда где можно делать почти всё не выходя из программы.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>VS Code для DevOps</span>
+        </div>
+        <pre>code .                 # открыть текущую папку в VS Code
+code файл.txt          # открыть конкретный файл
+
+# Встроенный терминал:
+Ctrl+`                 # открыть/закрыть терминал
+# можно запускать git, docker, curl прямо в редакторе
+
+# Полезные расширения:
+Docker                 # управление контейнерами через GUI
+GitLens                # расширенная работа с Git
+Remote SSH             # редактировать файлы на удалённом сервере
+YAML                   # подсветка и валидация YAML файлов
+PostgreSQL             # работа с базой данных
+
+# Remote SSH — killer feature для DevOps:
+# подключаешься к серверу по SSH и редактируешь файлы
+# как будто они локальные — никаких scp и vim на сервере</pre>
+      </div>
+
+      <h2 id="devops-tips-s3">curl — проверка HTTP запросов</h2>
+      <p>curl — универсальный инструмент для отправки HTTP запросов. Незаменим для проверки API и диагностики.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>curl — основные флаги</span>
+        </div>
+        <pre># Основной синтаксис:
+curl [флаги] URL
+
+# Флаги (можно комбинировать):
+-X GET/POST/PUT/DELETE  # метод запроса (по умолчанию GET)
+-H "Key: Value"         # добавить заголовок
+-d '{"key":"value"}'    # тело запроса (данные)
+-o файл.json            # сохранить ответ в файл
+-s                      # тихий режим (без прогресса)
+-v                      # подробный вывод (запрос + ответ)
+-L                      # следовать редиректам
+-u user:password        # базовая авторизация
+
+# Примеры:
+curl http://localhost:8000/topics
+# простой GET запрос
+
+curl -s http://localhost:8000/topics | python3 -m json.tool
+# -s убирает прогресс, json.tool форматирует JSON красиво
+
+curl -X PUT "http://localhost:8000/topics/1?progress=90" \
+  -H "Content-Type: application/json"
+# PUT запрос с заголовком
+# \ в конце строки — перенос команды на следующую строку
+
+curl -v http://localhost:8000/health
+# подробный вывод — видно заголовки запроса и ответа
+# полезно при отладке CORS и авторизации</pre>
+      </div>
+
+      <h2 id="devops-tips-s4">sed — замена текста в файлах</h2>
+      <p>sed — потоковый редактор. Позволяет менять текст в файлах без открытия редактора. Незаменим в скриптах.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>sed — основные операции</span>
+        </div>
+        <pre># Замена текста:
+sed 's/старое/новое/' файл.txt
+# s — substitute (заменить), заменит первое вхождение в каждой строке
+
+sed 's/старое/новое/g' файл.txt
+# g — global, заменит все вхождения
+
+sed -i 's/старое/новое/g' файл.txt
+# -i — изменить файл на месте (без -i только выводит результат)
+
+# Примеры:
+sed -i 's/localhost/production-server/g' config.yml
+# заменить адрес во всём файле конфига
+
+sed -n '5,10p' файл.txt
+# показать строки с 5 по 10
+
+grep "ERROR" app.log | sed 's/ERROR/❌ ERROR/g'
+# найти ошибки и подсветить их</pre>
+      </div>
+
+      <h2 id="devops-tips-s5">Bash скрипты</h2>
+      <p>Шпаргалка по синтаксису bash — что с чем не путать (кавычки, скобки, операторы, слеши) плюс лайфхаки. Полный разбор «как из одной команды вырастает боевой скрипт» — в разделе 🐧 Linux → «Bash — скрипты и автоматизация».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Структура скрипта</span>
+        </div>
+        <pre>#!/bin/bash
+# !/bin/bash — шебанг, указывает какой интерпретатор использовать
+# без этой строки скрипт может не запуститься
+
+# Переменные:
+NAME="world"
+echo "Hello, $NAME"    # Hello, world
+# $NAME — обращение к переменной
+
+# Условия:
+if [ -f файл.txt ]; then
+    echo "файл существует"
+else
+    echo "файла нет"
+fi
+# -f — проверить что это файл
+# -d — проверить что это папка
+# -z — проверить что строка пустая
+
+# Цикл:
+for i in 1 2 3; do
+    echo "Число: $i"
+done
+
+# Запуск скрипта:
+chmod +x script.sh     # дать права на выполнение
+./script.sh            # запустить</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">QUOTES</span>
+          <span>Кавычки и апострофы — не путать</span>
+        </div>
+        <pre>"двойные"   — bash ПОДСТАВЛЯЕТ переменные и $( ):  echo "$USER" → kirill
+'одинарные' — всё БУКВАЛЬНО, $ не трогается:        echo '$USER' → $USER
+`обратные`  — старый аналог $( ); НЕ используй, легко спутать с ' — пиши $( )
+
+# Спецсимволы ($ ! @ \) — только в ОДИНАРНЫХ, иначе bash их съест:
+echo "P@$$w0rd"   # $$ = PID процесса → строка испорчена
+echo 'P@$$w0rd'   # символ в символ — как надо
+# " и ' — это РАЗНЫЕ режимы, не взаимозаменяемы.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BRACKETS</span>
+          <span>Скобки: круглые / квадратные / фигурные</span>
+        </div>
+        <pre>$( ... )   выполнить команду, подставить РЕЗУЛЬТАТ:  D=$(date +%F)
+${ ... }   явные границы имени переменной:           echo "${NAME}_bak"
+( ... )    подоболочка (отдельный процесс) / при объявлении функции f()
+{ ...; }   группа команд в ТЕКУЩЕЙ оболочке / тело функции (пробелы и ; нужны)
+[ ... ]    тест-условие (это команда test!):  if [ -f файл ]; then
+[[ ... ]]  продвинутый тест bash: умеет && || и =~ (regex)
+(( ... ))  арифметика:  (( i++ )) ,  if (( a &gt; b ))
+
+# НЕ ПУТАТЬ:
+#  ( ) подоболочка  ≠  { } та же оболочка
+#  [ ] тест         ≠  { } блок команд
+#  $(...) команда   ≠  ${...} переменная</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">OPERATORS</span>
+          <span>Операторы и разделители</span>
+        </div>
+        <pre>;     разделитель: команды по очереди, независимо друг от друга
+&&    "И":   следующее ТОЛЬКО если предыдущее успешно (код 0)
+||    "ИЛИ": следующее ТОЛЬКО если предыдущее упало (код ≠ 0)
+&     отправить команду в ФОН (не ждать её завершения)
+|     пайп: stdout левой команды → stdin правой:  ps aux | grep nginx
+&gt;     перенаправить вывод в файл — ЗАТЕРЕТЬ
+&gt;&gt;    перенаправить вывод в файл — ДОПИСАТЬ (для логов!)
+2&gt;&1  направить ошибки (stderr) туда же, куда обычный вывод (stdout)
+
+# НЕ ПУТАТЬ:
+#  &  (фон)      ≠  &&  (логическое И)
+#  |  (пайп)     ≠  ||  (логическое ИЛИ)
+#  &gt;  (затереть) ≠  &gt;&gt;  (дописать)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BACKSLASH</span>
+          <span>Обратный слеш \ — перенос и экранирование</span>
+        </div>
+        <pre># 1) В КОНЦЕ строки — перенос длинной команды на несколько строк:
+cmd1 \
+  && cmd2 \
+  && cmd3            # bash склеит всё в одну команду
+# ⚠️ после \ НЕ должно быть ни пробела, ни таба — только конец строки,
+#    иначе \ экранирует пробел, а не перенос — и команда развалится.
+
+# 2) Перед символом — экранировать (снять спецсмысл):
+echo "цена 5\$"      # \$ = просто доллар, а не начало переменной
+cd my\ file          # \(пробел) = пробел внутри имени файла
+grep "\." file       # \. = точка как символ, а не "любой символ"</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">LIFEHACKS</span>
+          <span>Лайфхаки — проверка и защита</span>
+        </div>
+        <pre>set -euo pipefail        # первые строки взрослого скрипта: падать честно
+bash -n script.sh        # проверить СИНТАКСИС, ничего не запуская
+bash -x script.sh        # трассировка: печатает каждую команду перед запуском
+shellcheck script.sh     # ⭐ линтер: ловит кучу багов и опечаток ДО запуска
+
+"$var"                   # ВСЕГДА бери переменные в кавычки — спасает от пробелов
+${VAR:-default}          # подставить default, если VAR пустая/не задана
+${#var}                  # длина строки в переменной
+cmd && echo OK || echo FAIL   # быстрый одноразовый итог прямо в терминале
+mkdir -p a/b/c           # -p создаёт всю цепочку папок и не ругается, если есть
+!!                       # повторить прошлую команду целиком:  sudo !!</pre>
+      </div>
+
+      <h2 id="devops-tips-s6">Cron — планировщик задач</h2>
+      <p>Cron запускает команды по расписанию. Бэкапы, очистка логов, проверки — всё это делается через cron.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Синтаксис cron</span>
+        </div>
+        <pre># Открыть редактор cron задач:
+crontab -e
+
+# Формат записи:
+# минута час день месяц день_недели команда
+# *      *   *    *     *            команда
+
+# Примеры:
+0 2 * * *    /scripts/backup.sh
+# каждый день в 2:00 ночи запускать бэкап
+
+*/5 * * * *  curl http://localhost:8000/health
+# каждые 5 минут проверять здоровье сервиса
+
+0 0 * * 1    docker system prune -f
+# каждый понедельник в полночь чистить Docker
+
+# Спецсимволы:
+*    — любое значение
+*/5  — каждые 5 единиц
+1-5  — от 1 до 5
+1,3,5 — конкретные значения
+
+# Проверить список задач:
+crontab -l</pre>
+      </div>
+
+      <h2 id="devops-tips-s7">systemd на проде — главные приёмы</h2>
+      <p>Самые частые ситуации, в которых DevOps использует systemd на боевом сервере.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DIAG</span>
+          <span>Что-то сломалось — первое движение</span>
+        </div>
+        <pre>systemctl status  &lt;сервис&gt;       # 70% инцидентов закрываются ЗДЕСЬ
+                                  # видно: жив/мёртв, когда упал, хвост логов
+
+journalctl -u &lt;сервис&gt; -n 100 -r  # последние 100 строк, свежие сверху
+journalctl -u &lt;сервис&gt; -p err     # только ошибки
+journalctl -u &lt;сервис&gt; --since "1 hour ago"
+journalctl -u &lt;сервис&gt; -f         # live tail, чтобы поймать момент
+
+systemctl list-units --state=failed   # все упавшие сервисы на сервере</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">RELOAD</span>
+          <span>Корректное обновление конфига без даунтайма</span>
+        </div>
+        <pre># БОЛЬШИНСТВО сервисов умеют reload:
+sudo systemctl reload nginx       # перечитать конфиг без обрыва соединений
+sudo systemctl reload sshd        # перечитать sshd_config
+
+# reload работает, ТОЛЬКО если в .service есть ExecReload=
+# проверить:
+systemctl cat nginx | grep -i reload
+
+# если сервис не умеет reload — есть только restart (с обрывом):
+sudo systemctl restart myapp</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EDIT</span>
+          <span>Правильная правка чужого юнита</span>
+        </div>
+        <pre># НЕ редактируй файл в /usr/lib/systemd/system/ напрямую —
+# при обновлении пакета он будет затёрт.
+
+# Вместо этого — override:
+sudo systemctl edit nginx
+# откроет редактор, сохрани туда ТОЛЬКО изменения:
+# [Service]
+# Restart=on-failure
+# RestartSec=2
+
+# Override сохранится в /etc/systemd/system/nginx.service.d/override.conf
+# и automatic daemon-reload + рестарт сервиса.
+# Изменения переживут обновление пакета.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TIMER</span>
+          <span>systemd-timer как замена cron</span>
+        </div>
+        <pre># Современная альтернатива cron'у — пара юнитов:
+# /etc/systemd/system/backup.service — что запускать (Type=oneshot)
+# /etc/systemd/system/backup.timer   — когда запускать
+
+# backup.timer:
+[Unit]
+Description=Daily backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00    # каждый день в 2:00
+Persistent=true              # если машина была выключена — догнать запуск
+Unit=backup.service
+
+[Install]
+WantedBy=timers.target
+
+# Преимущества над cron:
+# + Логи в journalctl (cron логирует в /var/log/cron, не везде удобно)
+# + Persistent=true — догон пропущенных запусков (cron этого не умеет)
+# + Зависимости через After=/Requires=
+# + Случайный сдвиг через RandomizedDelaySec= (распределить нагрузку)
+
+# Управление:
+sudo systemctl enable --now backup.timer
+systemctl list-timers           # увидеть все таймеры с next-trigger
+journalctl -u backup.service    # логи прошлых запусков</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DOCKER</span>
+          <span>Стек docker-compose под systemd (паттерн)</span>
+        </div>
+        <pre># Зачем: автозапуск стека при перезагрузке сервера +
+#        автоматический рестарт при падении + единый журнал.
+
+# /etc/systemd/system/myapp.service:
+[Unit]
+Description=My App Stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/myapp
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=5
+User=appuser           # ⭐ НЕ root, иначе файлы данных будут root:root
+
+[Install]
+WantedBy=multi-user.target
+
+# Деплой:
+sudo systemctl daemon-reload
+sudo systemctl enable --now myapp</pre>
+      </div>
+
+      <div class="note">
+        <strong>Главное правило прода:</strong> любой сервис должен (1) запускаться через systemd-юнит с <code>Restart=on-failure</code>, (2) логировать в journal (просто пиши в stdout/stderr), (3) обрабатывать SIGTERM для корректного завершения. Без этих трёх — сервис нельзя считать прод-готовым.
+      </div>
+
+      <h2 id="devops-tips-s8">SELinux — безопасность на Fedora/RHEL</h2>
+      <p>SELinux — дополнительный слой защиты. Часто мешает Docker и другим инструментам на Fedora.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Диагностика и управление SELinux</span>
+        </div>
+        <pre>getenforce
+# Enforcing — активен и блокирует
+# Permissive — только логирует, не блокирует
+# Disabled — выключен
+
+sestatus               # подробный статус
+ausearch -m avc -ts recent  # что заблокировал недавно
+
+# Docker + SELinux:
+volumes:
+  - ./папка:/путь/в/контейнере:z
+# :z — shared (несколько контейнеров)
+# :Z — private (только этот контейнер)
+
+# Временно отключить (только для отладки!):
+setenforce 0           # Permissive режим
+setenforce 1           # вернуть Enforcing</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Permission denied в Docker на Fedora</div>
+        <pre>Permission denied: '/путь/к/папке'</pre>
+        <p>Это SELinux — не права файловой системы. <code>chmod</code> не поможет. Добавь <code>:z</code> к volume.</p>
+      </div>
+
+      <h2 id="devops-tips-s9">Диагностика — универсальный порядок</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Что делать когда что-то сломалось</span>
+        </div>
+        <pre># 1. Статус процессов/контейнеров
+docker ps -a           # для Docker
+systemctl status nginx # для systemd сервисов
+ps aux | grep python   # найти процесс по имени
+
+# 2. Логи
+docker logs контейнер 2>&1 | tail -50
+journalctl -u сервис -n 50 --no-pager
+tail -f /var/log/nginx/error.log
+# 2>&1 — объединить stdout и stderr
+# tail -50 — последние 50 строк
+# -f — следить в реальном времени
+
+# 3. Сеть и порты
+ss -tlnp | grep 8000   # кто занимает порт
+curl -v http://localhost:8000  # проверить HTTP
+ping hostname          # проверить доступность хоста
+
+# 4. Ресурсы
+df -h                  # место на диске
+free -h                # оперативная память
+htop                   # мониторинг в реальном времени</pre>
+      </div>
+
+      <h2 id="devops-tips-s10">Диски и RAID — боевые приёмы</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Дежурный набор при «что-то с диском»</span>
+        </div>
+        <pre># Карта местности: кто диск, кто раздел, где смонтирован, какие UUID:
+lsblk -f
+
+# «Диск полный!» — кто сожрал:
+df -h                      # по файловым системам: где болит
+du -xh --max-depth=1 / | sort -h | tail   # кто именно ест (-x = не лезть в другие ФС)
+# df видит, du не видит? Файлы-призраки ПОД точкой монтирования
+# или удалённый файл, который держит процесс: lsof | grep deleted
+
+# Здоровье RAID — одна команда:
+cat /proc/mdstat           # [UU] = оба живы; [U_] = деградировал, меняй диск!
+mdadm --detail /dev/md0    # подробности: какой именно диск выпал
+
+# Перед ЛЮБЫМ ребутом после правки fstab:
+systemctl daemon-reload &amp;&amp; mount -a   # ошибка вылезет сейчас, а не в emergency shell
+# И nofail на всё, без чего система может жить.</pre>
+      </div>
+
+      <h2 id="devops-tips-s11">Стандартные порты — знать наизусть</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Порты которые встречаются везде</span>
+        </div>
+        <pre>22    — SSH
+80    — HTTP
+443   — HTTPS
+3306  — MySQL / MariaDB
+5432  — PostgreSQL
+6379  — Redis
+9090  — Prometheus
+3000  — Grafana / Node.js (по умолчанию)
+8000  — FastAPI / Django (по умолчанию)
+8080  — альтернативный HTTP, Jenkins
+27017 — MongoDB
+5672  — RabbitMQ
+9200  — Elasticsearch</pre>
+      </div>
+
+      <div class="note">
+        <strong>Правило портов в Docker:</strong> "хост:контейнер". Если порт занят — меняй только левое (хост). Правое — это где приложение слушает внутри контейнера, его менять нельзя.
+      </div>
+
+      <h2 id="devops-tips-s12">Секреты и переменные окружения</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Правильное хранение паролей и токенов</span>
+        </div>
+        <pre># Файл .env — хранить рядом с docker-compose.yml
+POSTGRES_PASSWORD=supersecret
+GRAFANA_PASSWORD=admin123
+API_TOKEN=ghp_xxxxxxxxxxxx
+
+# В docker-compose.yml использовать переменные:
+environment:
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+# ОБЯЗАТЕЛЬНО добавить в .gitignore:
+echo ".env" >> .gitignore
+
+# Проверить что .env не попадёт в Git:
+git status   # .env не должен быть в списке
+
+# Посмотреть переменную окружения:
+echo $POSTGRES_PASSWORD
+env | grep POSTGRES    # все переменные содержащие POSTGRES</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Секреты попали в Git репозиторий</div>
+        <p>Если запушил пароли в публичный репозиторий — они скомпрометированы. GitHub автоматически сканирует коммиты.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение</div>
+        <p>Немедленно смени все пароли и токены. Добавь <code>.env</code> в <code>.gitignore</code>. Историю Git очистить очень сложно — проще сменить секреты чем чистить историю.</p>
+      </div>
+
+      <h2 id="devops-tips-s13">HashiCorp Vault — сейф для секретов</h2>
+      <p>Файлик <code>.env</code> хорош, пока у тебя один сервер и один ты. Когда серверов сто, деплоев двадцать в день, а пароль от базы знает каждый второй скрипт — нужен центральный сейф. Это и есть Vault.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Как устроен: сейф, ключи, аренда</span>
+        </div>
+        <pre>Идея: секреты лежат ЗАШИФРОВАННЫМИ в одном месте; приложения и люди
+приходят за ними по API с ТОКЕНОМ, а Vault решает по ПОЛИТИКАМ, кому что.
+
+Ключевые понятия:
+seal/unseal   после старта Vault «запечатан» — данные есть, читать нельзя.
+              Распечатывается НЕСКОЛЬКИМИ ключами (схема Шамира: ключ
+              разрезан, скажем, на 5 частей, любые 3 открывают). Ни один
+              человек в одиночку сейф не откроет.
+policy        кому какие пути можно: app-у — читать secret/db, людям — своё.
+secret engine движки хранения: kv (ключ-значение), database (⭐ генерирует
+              ВРЕМЕННЫЕ логины к БД на лету), pki (выписывает TLS-серты).
+lease / TTL   секрет выдаётся В АРЕНДУ на время. Истекла — секрет мёртв.
+              Утёкший пароль, который сам умирает через час, — уже не трагедия.
+audit log     каждый чих записан: кто, когда, какой секрет читал.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Как это выглядит руками</span>
+        </div>
+        <pre>vault kv put secret/myapp db_pass=s3cr3t     # положить секрет
+vault kv get secret/myapp                    # прочитать (если политика пускает)
+
+# Приложению пароль в конфиге больше не нужен:
+# оно логинится в Vault и просит секрет в рантайме.
+
+# Магия движка database — временные креды к PostgreSQL:
+vault read database/creds/my-role
+# → username: v-token-my-role-x7f2..., password: A1b2..., lease: 1h
+# Через час Vault САМ удалит этого юзера из базы. Паролей «навсегда» нет.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Формула:</strong> .env — секрет лежит у каждого; Vault — секрет лежит в одном сейфе, выдаётся по токену, по политике, на время и под запись. На собесе достаточно: seal/unseal по Шамиру, политики, kv vs динамические секреты, lease/TTL.
+      </div>
+
+      <h2 id="devops-tips-s14">Лайфхаки и полезные сокращения</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Сокращения флагов</span>
+        </div>
+        <pre># Почти у каждой команды есть короткие флаги:
+-v  вместо  --version    (проверить версию)
+-h  вместо  --help       (справка)
+-f  вместо  --file       (указать файл)
+-n  вместо  --dry-run    (показать что будет, не выполняя)
+-r  вместо  --recursive  (применить к папке рекурсивно)
+-i  вместо  --interactive (интерактивный режим)
+-q  вместо  --quiet      (тихий режим, меньше вывода)
+-y  вместо  --yes        (подтверждать всё автоматически)
+
+# Примеры:
+docker -v              # версия Docker
+git --version          # тоже версия
+apt install -y nginx   # установить без вопросов
+rm -rf папка/          # удалить папку рекурсивно</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Полезные трюки в терминале</span>
+        </div>
+        <pre># История команд:
+Ctrl+R                 # поиск по истории команд
+history | grep docker  # найти прошлые docker команды
+!!                     # повторить последнюю команду
+!docker                # повторить последнюю команду начинающуюся с docker
+
+# Навигация:
+Ctrl+A                 # в начало строки
+Ctrl+E                 # в конец строки
+Ctrl+C                 # отменить текущую команду
+Ctrl+L                 # очистить экран (или команда clear)
+
+# Перенос длинных команд — \ в конце строки:
+curl -X PUT \
+  -H "Content-Type: application/json" \
+  -d '{"progress": 90}' \
+  http://localhost:8000/topics/1
+# \ говорит "команда продолжается на следующей строке"
+
+# Перенаправление вывода:
+команда > файл.txt     # записать вывод в файл (перезапишет)
+команда >> файл.txt    # добавить в конец файла
+команда 2>&1           # объединить stdout и stderr
+команда | tee файл.txt # вывести И записать в файл одновременно</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Must-have утилиты для DevOps</span>
+        </div>
+        <pre>htop      — мониторинг процессов (красивее чем top)
+           установка: apt/dnf install htop
+
+ncdu      — анализ места на диске в интерактивном режиме
+           установка: apt/dnf install ncdu
+
+jq        — работа с JSON в терминале
+           echo '{"name":"test"}' | jq '.name'
+
+tmux      — несколько терминалов в одном окне
+           незаменим при работе по SSH
+           Ctrl+B затем C — новое окно
+           Ctrl+B затем стрелки — переключение
+
+watch     — повторять команду каждые N секунд
+           watch -n 2 docker ps   # обновлять каждые 2 сек
+
+dig / nslookup — проверка DNS
+           dig google.com
+           nslookup google.com</pre>
+      </div>
+
+      <h2 id="devops-tips-s15">PostgreSQL — администрирование</h2>
+      <p>DevOps должен уметь подключиться к базе, посмотреть что происходит, найти медленные запросы и не сломать продакшн.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Полезные команды psql</span>
+        </div>
+        <pre>\l          — список всех баз данных
+\c dbname   — подключиться к базе
+\dt         — список таблиц
+\d topics   — структура таблицы (колонки, типы, индексы)
+\di         — список индексов
+\du         — список пользователей
+\x          — расширенный вывод (удобно для широких таблиц)
+\timing     — показывать время выполнения каждого запроса
+\q          — выйти</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Диагностика производительности</span>
+        </div>
+        <pre>-- Найти медленные запросы (нужен модуль pg_stat_statements):
+SELECT query, calls, mean_exec_time, total_exec_time
+FROM pg_stat_statements
+ORDER BY mean_exec_time DESC
+LIMIT 10;
+
+-- Активные подключения и что они делают:
+SELECT pid, usename, application_name, state, query
+FROM pg_stat_activity
+WHERE state != 'idle';
+
+-- Размер таблиц:
+SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
+FROM pg_stat_user_tables
+ORDER BY pg_total_relation_size(relid) DESC;
+
+-- Размер базы данных:
+SELECT pg_size_pretty(pg_database_size('portfolio'));
+
+-- Статистика использования индексов:
+SELECT indexrelname, idx_scan, idx_tup_read
+FROM pg_stat_user_indexes
+ORDER BY idx_scan;</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Управление пользователями и правами</span>
+        </div>
+        <pre>-- Создать пользователя:
+CREATE USER readonly WITH PASSWORD 'secret';
+
+-- Дать права только на чтение:
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly;
+
+-- Дать все права на базу:
+GRANT ALL PRIVILEGES ON DATABASE portfolio TO devops;
+
+-- Отозвать права:
+REVOKE SELECT ON topics FROM readonly;
+
+-- Посмотреть права на таблицу:
+\dp topics</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Бэкап и восстановление PostgreSQL</span>
+        </div>
+        <pre># Сделать бэкап базы:
+pg_dump -U devops -d portfolio > backup.sql
+# или в сжатом формате:
+pg_dump -U devops -d portfolio -Fc > backup.dump
+
+# Восстановить из бэкапа:
+psql -U devops -d portfolio < backup.sql
+# или из сжатого:
+pg_restore -U devops -d portfolio backup.dump
+
+# Бэкап через Docker:
+docker exec devops-portfolio-db-1 pg_dump -U devops portfolio > backup.sql
+
+# Расписание бэкапов через cron (каждый день в 3:00):
+0 3 * * * docker exec devops-portfolio-db-1 pg_dump -U devops portfolio > /backups/$(date +%Y%m%d).sql</pre>
+      </div>
+
+      <div class="note">
+        <strong>Золотое правило DevOps и PostgreSQL:</strong> EXPLAIN ANALYZE перед любым изменением схемы на продакшн. Добавил индекс → проверь что запросы стали быстрее. Удалил индекс → убедись что ничего не замедлилось. Никогда не делай миграции без бэкапа.
+      </div>
+
+      <h2 id="devops-tips-s16">NULL — заражает всё</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Как NULL ведёт себя в выражениях</span>
+        </div>
+        <pre>SELECT 1 + NULL;           -- результат: NULL (не 1, не ошибка — именно NULL)
+SELECT 'text' || NULL;     -- результат: NULL
+SELECT COUNT(notes) FROM topics;  -- не считает строки где notes = NULL
+SELECT COUNT(*) FROM topics;      -- считает ВСЕ строки включая NULL
+
+-- NULL "заражает" всё к чему прикасается
+-- Любая операция с NULL = NULL
+
+-- COALESCE — спасение от NULL:
+SELECT name, COALESCE(notes, 'нет заметок') FROM topics;
+-- если notes = NULL → вернёт 'нет заметок'
+-- если notes = 'текст' → вернёт 'текст'
+
+-- NULLIF — обратное: вернуть NULL если значение равно чему-то:
+SELECT NULLIF(progress, 0) FROM topics;
+-- если progress = 0 → вернёт NULL
+-- удобно чтобы не делить на ноль</pre>
+      </div>
+
+      <h2 id="devops-tips-s17">Боевые приёмы — закрепляем разобранное</h2>
+      <p>Короткие приёмы, которые всплыли на тестировании. Каждый — про реальную ситуацию «что-то сломалось, надо чинить».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Процессы, сигналы, контейнеры</span>
+        </div>
+        <pre># Убивать процесс ПРАВИЛЬНО (не лупить -9 сразу):
+kill 4242              # SIGTERM — вежливо, даёт закрыть файлы/БД
+# подождал пару секунд, не сдох:
+kill -9 4242           # SIGKILL — насильно (рвёт данные, оставляет .lock)
+# SIGKILL нельзя поймать; сразу -9 = битые данные и осиротевшие локи
+
+# Процесс в состоянии D (uninterruptible sleep) не убить НИЧЕМ,
+# даже -9 — он ждёт мёртвый диск/NFS. Лечится только ребутом.
+ps -eo pid,stat,cmd | grep ' D'
+
+# Влезть в контейнер с упрямым ENTRYPOINT (например ENTRYPOINT=python):
+docker run --entrypoint bash myimage   # перебить entrypoint напрямую
+docker exec -it мой_контейнер bash     # зайти в уже запущенный
+
+# База не успевает чисто остановиться за 10 сек grace period:
+docker stop -t 30 db_container          # дать 30 сек на флаш данных
+
+# В Dockerfile ВСЕГДА exec form — иначе процесс не PID 1
+# и SIGTERM застрянет в sh:
+# CMD ["python", "app.py"]   ✅   а не   CMD python app.py  ❌</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Сеть, доступ, безопасность</span>
+        </div>
+        <pre># Кто слушает порт 8000 (и каким процессом):
+sudo ss -tlnp | grep :8000
+
+# Достучаться до закрытой снаружи БД через SSH-туннель:
+ssh -L 5432:localhost:5432 user@prod-server
+# теперь localhost:5432 на твоей машине = порт 5432 на сервере
+# (port forwarding: прокинуть удалённый порт к себе)
+
+# Аудит SUID-бинарников (через что могут получить root):
+find / -perm -4000 -type f 2>/dev/null   # меньше в списке = безопаснее
+
+# Проверить, какие у файла-ключа права (ssh откажет, если шире 600):
+ls -l ~/.ssh/id_ed25519     # должно быть -rw------- (600)
+
+# Заголовки HTTP-ответа без тела (проверить редирект/код/тип):
+curl -I https://example.com</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Логи, git, спасение</span>
+        </div>
+        <pre># Стримить логи конкретного сервиса systemd + только ошибки:
+journalctl -u nginx -f          # хвост в реальном времени
+journalctl -u nginx -p err      # только уровень error и выше
+journalctl -u nginx --since "10 min ago"
+
+# Логи контейнера/стека:
+docker compose logs -f backend  # стримить логи одного сервиса
+
+# Git: запорол rebase/reset, "потерял" коммиты — НЕ паникуй:
+git reflog                      # машина времени: ВСЕ движения HEAD
+git reset --hard HEAD@{3}       # вернуться на состояние "3 шага назад"
+# reflog видит даже то, что не видит git log — коммиты живут ~90 дней
+
+# Повторять команду и смотреть, как меняется (мониторинг на лету):
+watch -n2 'kubectl get pods'    # обновлять список подов каждые 2 сек</pre>
+      </div>
+
+      <div class="note">
+        <strong>Мини-правила на каждый день:</strong> <code>kill</code> до <code>kill -9</code> (сначала вежливо). Условие на правую таблицу LEFT JOIN — в <code>ON</code>, не в <code>WHERE</code>. В Dockerfile — exec form <code>["cmd","arg"]</code>. Запорол git — <code>git reflog</code> спасёт. Сломался под/сервис — сначала <code>describe</code>/<code>logs</code>/<code>journalctl</code>, потом думать. Принцип least privilege: прав ровно столько, сколько нужно (<code>600</code> на ключи и секреты).
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — Docker Compose — управление стеком</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="docker-compose">
+      <h1>Docker Compose — управление стеком</h1>
+      <p>Docker Compose позволяет запустить несколько контейнеров одной командой. Все настройки описаны в одном файле <code>docker-compose.yml</code>.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Если Docker — это один повар, то Docker Compose — это ресторан с несколькими поварами. Один файл описывает всю кухню: кто что делает, как связан с другими.
+      </div>
+
+      <h2 id="docker-compose-s0">Структура файла</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>docker-compose.yml</span>
+        </div>
+        <pre>services:              # список всех сервисов
+  backend:             # название сервиса (придумываем сами)
+    build: ./backend   # собрать из Dockerfile в папке backend/
+    ports:
+      - "8000:8000"    # левое:правое = хост:контейнер
+    depends_on:
+      - db             # запускать только после db и redis
+      - redis
+
+  db:
+    image: postgres:16     # готовый образ с Docker Hub
+    environment:           # переменные окружения
+      POSTGRES_USER: devops
+      POSTGRES_PASSWORD: devops
+      POSTGRES_DB: portfolio
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:z
+      # ./db — папка на компьютере
+      # /docker-entrypoint-initdb.d — папка в контейнере
+      # :z — разрешение SELinux (нужно на Fedora)
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3030:3000"   # 3000 был занят VS Code — поменяли на 3030</pre>
+      </div>
+
+      <h2 id="docker-compose-s1">Основные команды</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Управление стеком</span>
+        </div>
+        <pre>docker compose up            # запустить все сервисы
+docker compose up --build    # запустить с пересборкой образов
+docker compose up -d         # запустить в фоне (терминал свободен)
+docker compose down          # остановить и удалить контейнеры
+docker compose down -v       # + удалить volumes (данные БД)
+docker compose restart db    # перезапустить конкретный сервис</pre>
+      </div>
+
+      <h2 id="docker-compose-s2">YAML — синтаксис</h2>
+      <p>YAML — формат файла конфигурации. Главное правило — отступы строго через пробелы, не табы.</p>
+
+      <div class="error-block">
+        <div class="title">Неправильные отступы в YAML</div>
+        <pre>services:
+    backend:      # 4 пробела — ОШИБКА
+      ports:
+        - "8000:8000"</pre>
+        <p>Причина: сервисы должны иметь 2 пробела, а не 4.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Правильные отступы</div>
+        <pre>services:          # 0 пробелов
+  backend:         # 2 пробела
+    ports:         # 4 пробела
+      - "8000:8000"  # 6 пробелов</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> <code>depends_on</code> задаёт порядок запуска, но не ждёт пока сервис полностью готов. Если база стартует медленно — бэкенд может упасть и перезапуститься.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

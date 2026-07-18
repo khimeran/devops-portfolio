@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — ☸️ Kubernetes — оркестратор контейнеров</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="kubernetes">
+      <h1>☸️ Kubernetes — оркестратор контейнеров</h1>
+      <p>Kubernetes (он же <strong>K8s</strong> — «K», восемь букв, «s») — это автопилот для контейнеров. Docker умеет запустить контейнер на одной машине. K8s умеет держать <strong>сотни контейнеров на десятках машин</strong>: сам раскидывает их по серверам, перезапускает упавшие, масштабирует под нагрузку и даёт им стабильные адреса. Кубер тяжело заходит не потому что сложный, а потому что в нём <strong>много абстракций навалено разом</strong>. Поэтому ниже каждое понятие привязано к тому, что ты уже знаешь — Docker, nginx, systemd, etcd.</p>
+
+      <div class="note">
+        <strong>Аналогия на весь раздел:</strong> Docker Compose — это «запусти мне стек на <em>этой</em> машине». Kubernetes — это «вот тебе <em>флот</em> машин и список того, что должно работать; разруливай сам, кто где запущен, кто упал, кого перезапустить». Compose — повар на одной кухне. K8s — управляющий сетью ресторанов, который сам решает, в каком филиале готовить и кого вызвать на замену заболевшему.
+      </div>
+
+      <h2 id="kubernetes-s0">Зачем нужен — боль, которую решает</h2>
+      <p>Представь, что у тебя 20 контейнеров на 5 серверах руками через <code>docker run</code>. И вот вопросы, на которые у тебя нет ответа без оркестратора:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">БОЛЬ</span>
+          <span>Что делает Kubernetes за тебя</span>
+        </div>
+        <pre>Контейнер упал в 3 ночи     → K8s сам перезапустит (self-healing)
+Сервер целиком умер          → K8s переедет его контейнеры на живые узлы
+Нагрузка выросла в 10 раз     → K8s поднимет ещё реплик (autoscaling)
+Выкатка новой версии          → K8s обновит поды по одному, без даунтайма
+                               (rolling update; сломалось — откат)
+Где запущен контейнер?        → K8s сам выбирает узел (scheduler)
+Как найти контейнер в сети?   → стабильное DNS-имя через Service
+Конфиги и пароли              → вынесены в ConfigMap / Secret</pre>
+      </div>
+
+      <div class="note">
+        <strong>Ключевая идея — декларативность.</strong> Ты не командуешь «запусти контейнер» (это императив, как <code>docker run</code>). Ты <strong>описываешь желаемое состояние</strong>: «хочу, чтобы всегда работало 3 реплики моего приложения». K8s постоянно сравнивает «что хочу» с «что есть» и сам приводит реальность к желаемому. Это <strong>ровно та же идея, что у Terraform</strong> (желаемое состояние в коде + reconcile), только не для инфры, а для контейнеров в рантайме.
+      </div>
+
+      <h2 id="kubernetes-s1">Архитектура: Control Plane и Nodes</h2>
+      <p>Кластер K8s делится на две части: <strong>мозг</strong> (Control Plane) и <strong>мышцы</strong> (Worker Nodes — машины, где реально крутятся твои контейнеры).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">АРХИТЕКТУРА</span>
+          <span>Кто за что отвечает</span>
+        </div>
+        <pre>┌─ CONTROL PLANE (мозг кластера) ──────────────────────┐
+│  kube-apiserver  — единая точка входа. ВСЁ общение     │
+│                    идёт через него (kubectl, узлы).    │
+│                    Аналог: API-сервер всего кластера.  │
+│  etcd            — база состояния кластера (key-value).│
+│                    ХРАНИТ "что должно работать".       │
+│                    Тот самый etcd, что в Patroni!      │
+│                    Потеряешь etcd — потеряешь кластер.  │
+│  scheduler       — решает, на КАКОЙ узел поставить под  │
+│                    (по свободным CPU/RAM).             │
+│  controller-mgr  — следит "хочу 3 реплики = есть 3?",   │
+│                    чинит расхождения (reconcile loop). │
+└───────────────────────────────────────────────────────┘
+┌─ WORKER NODE (мышцы, таких много) ───────────────────┐
+│  kubelet         — агент на узле. Получает от мозга    │
+│                    "запусти эти поды" и запускает их.  │
+│                    Аналог: docker daemon + systemd.    │
+│  kube-proxy      — сетевая магия, делает Service'ы.    │
+│  container runtime — сам Docker/containerd, запускает  │
+│                    контейнеры.                         │
+└───────────────────────────────────────────────────────┘</pre>
+      </div>
+
+      <div class="note">
+        <strong>Связь с тем, что знаешь:</strong> <code>etcd</code> ты уже видел в Patroni (раздел HA) — там он хранил «кто лидер PostgreSQL». В K8s etcd хранит <strong>всё состояние кластера</strong> — это его «source of truth», как <code>terraform.tfstate</code> для Terraform. <code>kubelet</code> на узле — это по сути «<code>systemd</code> + <code>docker daemon</code>», который следит, чтобы назначенные ему контейнеры жили.
+      </div>
+
+      <h2 id="kubernetes-s2">Pod — атом Kubernetes</h2>
+      <p><strong>Pod</strong> — это минимальная единица, которой управляет K8s. Чаще всего Pod = <strong>один контейнер + обёртка вокруг него</strong>. Ты не управляешь контейнерами напрямую — ты управляешь подами.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Pod — это <strong>один <code>docker run</code>, но в скафандре</strong>. Внутри обычно один контейнер (твоё приложение), но у пода есть свой IP, свои тома и свой жизненный цикл. Иногда в поде живёт 2–3 контейнера, которые обязаны быть вместе (приложение + «sidecar» — например сборщик логов). Они делят один IP и localhost — как процессы на одной машине.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Простейший Pod (pod.yaml)</span>
+        </div>
+        <pre>apiVersion: v1
+kind: Pod                 # тип объекта
+metadata:
+  name: my-app            # имя пода
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27   # тот же образ, что в docker run
+      ports:
+        - containerPort: 80</pre>
+      </div>
+
+      <div class="note">
+        <strong>Важно про Pod:</strong> поды <strong>смертны и одноразовы</strong> (ephemeral). Упал — K8s не «лечит» этот под, а создаёт <strong>новый</strong> со <strong>новым IP</strong>. Поэтому на под нельзя ссылаться по IP — он постоянно меняется. Эту проблему решает Service (см. ниже). Сам по себе голый Pod почти не используют — его заворачивают в Deployment.
+      </div>
+
+      <h2 id="kubernetes-s3">Deployment — следит, чтобы поды жили</h2>
+      <p>Голый Pod упал — и всё, его никто не поднимет. <strong>Deployment</strong> — это надсмотрщик: ты говоришь «хочу 3 реплики», а он постоянно следит, чтобы их было ровно 3. Один упал — поднимет новый. Это и есть self-healing.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Deployment — это <code>systemd</code> с <code>Restart=always</code>, но для целой пачки подов сразу. Помнишь, как <code>Restart=on-failure</code> в твоём <code>.service</code>-юните перезапускал упавший процесс? Deployment делает то же самое для подов, плюс держит их <strong>заданное количество</strong> и умеет обновлять версию без даунтайма.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Deployment с 3 репликами (deployment.yaml)</span>
+        </div>
+        <pre>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-deploy
+spec:
+  replicas: 3             # ⭐ ЖЕЛАЕМОЕ состояние: всегда 3 пода
+  selector:
+    matchLabels:
+      app: web            # какими подами я управляю (по метке)
+  template:              # ШАБЛОН пода, который будут штамповать
+    metadata:
+      labels:
+        app: web          # метка вешается на каждый под
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
+
+# Поднять/обновить:
+kubectl apply -f deployment.yaml
+# Убить один под вручную → Deployment СРАЗУ поднимет новый (всегда 3)
+# Масштабировать на лету:
+kubectl scale deployment web-deploy --replicas=5</pre>
+      </div>
+
+      <div class="note">
+        <strong>Rolling update:</strong> меняешь <code>image: nginx:1.27</code> → <code>1.28</code> и делаешь <code>kubectl apply</code>. Deployment обновляет поды <strong>по одному</strong>: поднял новый — убил старый — и так по кругу. Сервис не падает ни на секунду. Сломалось — <code>kubectl rollout undo deployment web-deploy</code> откатит назад. Это твой CI/CD-деплой без даунтайма, встроенный в кубер.
+      </div>
+
+      <h2 id="kubernetes-s4">Service — стабильный адрес для подов</h2>
+      <p>Поды постоянно пересоздаются с новыми IP. Как тогда обратиться к приложению? Через <strong>Service</strong> — это <strong>стабильный виртуальный IP + DNS-имя</strong>, которое всегда указывает на актуальные поды и <strong>балансирует</strong> нагрузку между ними.</p>
+
+      <div class="note">
+        <strong>Аналогия — и тут ты уже всё знаешь:</strong> Service — это <strong>nginx <code>upstream</code> внутри кластера</strong>. Помнишь свой раздел про reverse proxy и балансировку? Там nginx держал список бэкендов и раскидывал на них запросы. Service делает ровно это: держит постоянный адрес, а за ним — меняющийся пул подов, и балансит между живыми. Поды приходят и уходят с новыми IP — Service-адрес неизменен.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Service перед Deployment (service.yaml)</span>
+        </div>
+        <pre>apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc
+spec:
+  selector:
+    app: web              # балансирует на поды с меткой app=web
+  ports:
+    - port: 80            # порт самого Service
+      targetPort: 80      # порт внутри пода
+  type: ClusterIP         # тип (см. ниже)
+
+# Теперь другие поды зовут приложение по ИМЕНИ, а не по IP:
+#   http://web-svc        ← внутренний DNS кластера сам резолвит</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ТИПЫ SERVICE</span>
+          <span>Как открыть доступ — изнутри или снаружи</span>
+        </div>
+        <pre>ClusterIP    — (по умолчанию) доступен ТОЛЬКО внутри кластера.
+               Для общения сервисов между собой.
+               Аналог: слушать на 127.0.0.1.
+
+NodePort     — открывает порт на КАЖДОМ узле (30000-32767).
+               Доступ снаружи по IP_узла:порт. Грубовато, для теста.
+
+LoadBalancer — облако (AWS/GCP) поднимает внешний балансировщик
+               с публичным IP. Прод-способ пускать трафик снаружи.
+
+Ingress      — (отдельный объект, не тип Service) умный HTTP-роутер
+               перед сервисами: домены, пути, SSL. Это буквально
+               nginx/traefik как reverse proxy на входе в кластер.</pre>
+      </div>
+
+      <h2 id="kubernetes-s5">Namespace, ConfigMap, Secret</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ОБЪЕКТЫ</span>
+          <span>Изоляция и конфигурация</span>
+        </div>
+        <pre>Namespace   — виртуальные "папки" внутри кластера.
+              Делят кластер на части: dev / staging / prod,
+              или по командам. Объекты в разных namespace
+              не мешают друг другу (могут иметь одинаковые имена).
+              kubectl get pods -n prod   # поды в namespace prod
+
+ConfigMap   — НЕсекретная конфигурация вынесенная наружу образа:
+              переменные окружения, конфиг-файлы.
+              Аналог: переменные в docker-compose / .env файл.
+
+Secret      — то же, но для ПАРОЛЕЙ, токенов, ключей.
+              Хранится в base64 (это НЕ шифрование!), но
+              управляется отдельно и его можно зашифровать в etcd.
+              Прокидывается в под как env-переменная или файл.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Зачем выносить конфиг наружу:</strong> один и тот же образ должен работать и в dev, и в prod — отличаются только настройки (адрес БД, пароли). Поэтому конфиг <strong>не зашивают в образ</strong>, а подкидывают через ConfigMap/Secret. Это та же мысль, что «секреты не коммитят в Git, а кладут в переменные окружения» из раздела «Важно для DevOps».
+      </div>
+
+      <h2 id="kubernetes-s6">kubectl — главные команды</h2>
+      <p><code>kubectl</code> (кубоконтроль) — это <code>docker</code> CLI, но для всего кластера. Через него идёт всё общение с <code>kube-apiserver</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Шпаргалка kubectl</span>
+        </div>
+        <pre># Применить манифест (создать/обновить объекты):
+kubectl apply -f deployment.yaml     # ⭐ главная команда (декларативно)
+
+# Посмотреть что есть:
+kubectl get pods                     # список подов
+kubectl get pods -o wide             # + на каком узле и IP
+kubectl get deploy,svc               # деплойменты и сервисы
+kubectl get all                      # вообще всё в namespace
+kubectl get pods -A                  # во ВСЕХ namespace
+
+# Диагностика (твои главные инструменты, когда что-то сломалось):
+kubectl describe pod my-app          # ⭐ подробности + события (Events!)
+kubectl logs my-app                  # логи контейнера (аналог docker logs)
+kubectl logs -f my-app               # стримить логи (как tail -f)
+kubectl exec -it my-app -- bash      # ⭐ зайти внутрь пода (как docker exec)
+
+# Управление:
+kubectl scale deploy web --replicas=5   # масштабировать
+kubectl rollout undo deploy web         # откатить обновление
+kubectl delete pod my-app               # убить под (Deployment поднимет новый)
+kubectl apply -f .                      # применить все yaml в папке
+
+# Контекст и namespace:
+kubectl config get-contexts          # к каким кластерам подключён
+kubectl get pods -n kube-system      # системные поды самого кластера</pre>
+      </div>
+
+      <div class="note">
+        <strong>Главный приём диагностики:</strong> под не поднимается — <code>kubectl describe pod ИМЯ</code> и читай блок <strong>Events</strong> внизу (там причина: нет образа, мало памяти, упал healthcheck). Не помогло — <code>kubectl logs ИМЯ</code>. Это связка как <code>journalctl -u service</code> + <code>docker logs</code> из прошлых разделов, только для кубера.
+      </div>
+
+      <h2 id="kubernetes-s7">Связь с тем, что ты уже знаешь</h2>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ КАРТА</span>
+          <span>Кубер через знакомые понятия</span>
+        </div>
+        <pre>Pod          ≈  один docker run (контейнер в скафандре)
+Deployment   ≈  systemd с Restart=always + нужное число реплик
+Service      ≈  nginx upstream / reverse proxy (стабильный адрес + баланс)
+Ingress      ≈  nginx на входе: домены, пути, SSL
+ConfigMap    ≈  переменные окружения / .env из docker-compose
+Secret       ≈  секреты из переменных окружения (не в Git!)
+Namespace    ≈  отдельные "проекты"/окружения dev/prod
+etcd         ≈  terraform.tfstate / etcd из Patroni (состояние кластера)
+kubelet      ≈  docker daemon + systemd на каждом узле
+kubectl      ≈  docker CLI, но для всего кластера
+apply -f     ≈  terraform apply (декларативно привести к желаемому)</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог раздела:</strong> Kubernetes — автопилот для контейнеров на флоте машин. Ты <strong>декларативно</strong> описываешь желаемое состояние в YAML, а кластер сам его поддерживает. <strong>Pod</strong> — атом (контейнер+обёртка), смертен и одноразов. <strong>Deployment</strong> держит N живых реплик и обновляет без даунтайма. <strong>Service</strong> даёт стабильный адрес и балансит (как nginx upstream). <strong>etcd</strong> хранит состояние (как tfstate). <strong>kubectl describe</strong> + <strong>logs</strong> — первое, что смотришь, когда сломалось. Дальше по плану: поднять локальный кластер (minikube / kind / k3s) и потрогать всё это руками.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

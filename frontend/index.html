@@ -183,7 +183,8 @@
     <pre><code>devops-portfolio/
 ├── <span style="color:#58a6ff">frontend/</span>              # Этот сайт (статика, деплой на GitHub Pages)
 │   ├── index.html         # Главная — прогресс и карта знаний
-│   ├── notes.html         # Конспекты по всем темам
+│   ├── notes.html         # Вход в конспекты (редирект)
+│   ├── notes/             # Конспекты: страница на раздел + общий сайдбар
 │   └── learning_plan.html # План обучения со scroll-spy
 │
 ├── <span style="color:#3fb950">backend/</span>               # FastAPI приложение
@@ -230,6 +231,7 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
   <h3 style="color:#79c0ff; margin-top:1.5rem">🕰 Летопись</h3>
   <div class="card">
     <ul class="timeline">
+      <li><span class="date">18 июля 2026</span><span class="what">Старт подготовки к защите главы 1 стажировки. Блиц-повторение без промахов: процессы/сигналы, git (ветки-указатели, fast-forward), nginx (reload, 502 vs 504, три причины 403). Новая тема — диски: конвейер разметки, RAID 1 на <code>mdadm</code>, fstab с <code>nofail</code> и репетиция ребута через <code>mount -a</code> — всё руками на loop-полигоне. Бонус: боевой дебаг DNS-фильтрации провайдера (DoT, policy routing). Капремонт конспектов: распил на отдельные страницы с общим сайдбаром и кнопками навигации, дисковый раздел переписан в формат пошаговых инструкций, добавлена теория по Airflow, Puppet, Vault и почасовой ротации логов.</span></li>
       <li><span class="date">17 июня 2026</span><span class="what">Python — фундамент языка: 5 законов (всё — объект, переменная-ярлык, динамическая типизация), <code>venv</code>/<code>pip</code>, фонарики <code>type/dir/help</code>, цепочки методов, <code>try/except</code> и чтение traceback. Начал монитор сервисов на <code>requests</code>.</span></li>
       <li><span class="date">16 июня 2026</span><span class="what">Практический Bash: диагностика системы через <code>/proc</code>, <code>free</code>, <code>df</code>, <code>awk</code>. Собрал боевой <code>healthcheck.sh</code> — память + диск + CPU в одной цветной таблице. Старт Python с нуля.</span></li>
       <li><span class="date">11 июня 2026</span><span class="what">Аудит знаний по всему пройденному + первый заход на Kubernetes. Переделал главную страницу.</span></li>
@@ -297,7 +299,9 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
       ['🐧 Linux', [
         ['Файлы, права, спецбиты (rwx / SUID / chmod)', 'green'],
         ['Процессы, сигналы, systemd', 'green'],
-        ['Админка: юзеры/sudo, dnf, logrotate, SELinux', 'yellow'],
+        ['Диски: разметка GPT, RAID (mdadm), fstab', 'green'],
+        ['Админка: юзеры/sudo, dnf, SELinux', 'yellow'],
+        ['Ротация логов: logrotate, hourly-таймер, copytruncate', 'yellow'],
       ]],
       ['🌐 Сеть и SSH', [
         ['IP, CIDR, маршрутизация', 'green'],
@@ -342,6 +346,10 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
         ['needs: граф зависимостей', 'green'],
         ['pytest в CI, concurrency', 'yellow'],
       ]],
+      ['🌬 Airflow', [
+        ['Концепции: DAG, операторы, scheduler / executors', 'red'],
+        ['Развернуть v2: сервисы, LocalExecutor / Celery, git-sync', 'empty'],
+      ]],
       ['📊 Prometheus / Grafana', [
         ['Scraping (pull), prometheus.yml', 'green'],
         ['Метрики в FastAPI', 'yellow'],
@@ -352,9 +360,14 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
         ['Жизненный цикл, идемпотентность', 'yellow'],
         ['Variables / outputs, import', 'red'],
       ]],
-      ['🤖 Ansible', [
-        ['Концепции, inventory, идемпотентность', 'yellow'],
+      ['🤖 Ansible / Puppet', [
+        ['Ansible: концепции, inventory, идемпотентность', 'yellow'],
         ['Playbook (собрать вживую)', 'red'],
+        ['Puppet: pull-модель, агенты, манифесты', 'red'],
+      ]],
+      ['🔐 Секреты', [
+        ['.env, переменные окружения, .gitignore', 'green'],
+        ['Vault: seal/unseal, политики, динамические секреты', 'red'],
       ]],
       ['🔧 Jenkins', [
         ['Концепции, Jenkinsfile', 'red'],

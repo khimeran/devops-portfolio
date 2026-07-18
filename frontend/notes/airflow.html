@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — 🌬 Apache Airflow — оркестратор задач</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="airflow">
+      <h1>🌬 Apache Airflow — оркестратор задач</h1>
+      <p>Cron — будильник: «в 3:00 запусти скрипт». Он не знает, отработал ли скрипт, не умеет «сначала А, потом Б, а если А упало — Б не трогай», не хранит историю. <strong>Airflow — это cron, который вырос и стал прорабом</strong>: цепочки задач описываются кодом на Python, он запускает их по расписанию, следит за порядком, ретраит упавшее и рисует всё в веб-интерфейсе. Стандарт де-факто для пайплайнов данных.</p>
+
+      <h2 id="airflow-s0">DAG — главное слово Airflow</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Directed Acyclic Graph — направленный ациклический граф</span>
+        </div>
+        <pre>DAG — цепочка задач со стрелками порядка:
+
+  скачать_данные → обработать → загрузить_в_БД → дёрнуть_отчёт
+
+направленный   — у стрелок есть направление (что за чем)
+ациклический   — нельзя вернуться по кругу («обработай после загрузки,
+                 а загрузи после обработки» = вечный день сурка, запрещено)
+
+Задача (task) — один шаг графа. Оператор — ТИП шага:
+  BashOperator   — выполнить shell-команду
+  PythonOperator — вызвать python-функцию
+  Sensor         — ЖДАТЬ события (появился файл, отработал другой DAG)
+
+DAG описывается .py-файлом в папке dags/. Почему код, а не YAML/кнопки:
+пайплайн можно генерить циклом, ветвить условиями, покрыть тестами
+и хранить в git — конфиг на кнопках так не умеет.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>Минимальный DAG — файл dags/hello.py</span>
+        </div>
+        <pre>from airflow import DAG
+from airflow.operators.bash import BashOperator
+from datetime import datetime
+
+with DAG(
+    dag_id="hello",
+    start_date=datetime(2026, 1, 1),
+    schedule="0 3 * * *",          # знакомый cron-синтаксис
+    catchup=False,                 # не догонять пропущенные запуски задним числом
+) as dag:
+    download = BashOperator(task_id="download", bash_command="curl -o /tmp/d.csv ...")
+    process  = BashOperator(task_id="process",  bash_command="python process.py")
+
+    download &gt;&gt; process            # стрелка порядка: сначала download, потом process</pre>
+      </div>
+
+      <h2 id="airflow-s1">Архитектура: кто что делает</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Компоненты и исполнители (executors)</span>
+        </div>
+        <pre>scheduler   ⭐ мозг: читает DAG-файлы, смотрит расписания, ставит задачи
+            в очередь. Умер scheduler — ничего не запускается.
+webserver   веб-морда (Flask): графы, история, логи, кнопка «перезапустить»
+metadata DB память: состояния всех запусков. По умолчанию SQLite (игрушка),
+            в проде — PostgreSQL
+executor    КАК исполнять задачи:
+  SequentialExecutor  по одной, только с SQLite. Для «попробовать»
+  LocalExecutor       ⭐ параллельно процессами на той же машине + PostgreSQL.
+                      Честный вариант для одного сервера
+  CeleryExecutor      задачи уходят в очередь (Redis/RabbitMQ), их разбирают
+                      WORKER-ы на других машинах. Горизонтальный масштаб
+  KubernetesExecutor  под каждую задачу — под в k8s
+
+git-sync    сайдкар, который периодически подтягивает папку dags/ из git-репо:
+            деплой пайплайна = git push, никакого копирования руками</pre>
+      </div>
+
+      <div class="note">
+        <strong>Мостик к остальным темам:</strong> в проде каждый компонент Airflow (scheduler, webserver, worker) — это отдельный <em>systemd-сервис</em>, метаданные — в <em>PostgreSQL</em>, даги приезжают через <em>git</em>, а веб-морду прикрывает <em>nginx</em>. Вся глава 1 стажировки собирается в одну картину именно здесь.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

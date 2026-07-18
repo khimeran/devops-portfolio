@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — Jenkins — CI/CD сервер</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="jenkins">
+      <h1>Jenkins — CI/CD сервер</h1>
+      <p>Jenkins — сервер автоматизации. Он следит за репозиторием и при каждом изменении автоматически: собирает приложение, запускает тесты, деплоит на сервер. Это и называется CI/CD — непрерывная интеграция и доставка.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Jenkins — как конвейер на заводе. Ты положил деталь (сделал push в Git) — конвейер сам проверил, собрал, упаковал и отправил. Каждый шаг автоматический, ты только следишь за результатом.
+      </div>
+
+      <div class="note">
+        <strong>Разница с GitHub Actions:</strong> GitHub Actions встроен в GitHub и бесплатен для открытых проектов. Jenkins — самостоятельный сервер, его нужно развернуть и поддерживать. Зато Jenkins более гибкий и популярен в корпоративной среде.
+      </div>
+
+      <h2 id="jenkins-s0">Установка через Docker</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>docker-compose.yml — добавить Jenkins</span>
+        </div>
+        <pre>jenkins:
+  image: jenkins/jenkins:lts
+  # lts — Long Term Support, стабильная версия
+
+  ports:
+    - "8080:8080"    # веб-интерфейс
+    - "50000:50000"  # подключение агентов Jenkins
+
+  volumes:
+    - jenkins_home:/var/jenkins_home
+    # jenkins_home — постоянное хранилище данных Jenkins
+
+volumes:
+  jenkins_home:</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Получить первоначальный пароль</span>
+        </div>
+        <pre>docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+# Этот пароль вводится при первом входе на http://localhost:8080</pre>
+      </div>
+
+      <h2 id="jenkins-s1">Jenkinsfile — описание pipeline</h2>
+      <p>Jenkinsfile хранится в корне репозитория. Jenkins читает его и знает что делать при каждом push.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">GROOVY</span>
+          <span>Jenkinsfile — декларативный pipeline</span>
+        </div>
+        <pre>pipeline {
+    // pipeline — объявляем что это Jenkins pipeline
+
+    agent any
+    // agent any — запускать на любом доступном агенте (исполнителе)
+
+    environment {
+        IMAGE_NAME = 'my-app'
+        // environment — переменные доступные во всех stages
+    }
+
+    stages {
+        // stages — список этапов, выполняются по порядку
+
+        stage('Checkout') {
+            // stage — один этап с именем
+            steps {
+                checkout scm
+                // checkout scm — скачать код из Git репозитория
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} .'
+                // sh — выполнить shell команду
+                // BUILD_NUMBER — встроенная переменная Jenkins (номер сборки)
+            }
+        }
+
+        stage('Test') {
+            steps {
+                sh 'docker run --rm ${IMAGE_NAME}:${BUILD_NUMBER} pytest'
+                // pytest — запустить тесты внутри контейнера
+            }
+        }
+
+        stage('Deploy') {
+            when {
+                branch 'main'
+                // when — условие: этот этап только для ветки main
+            }
+            steps {
+                sh 'docker compose up -d --build'
+            }
+        }
+    }
+
+    post {
+        // post — что делать после всех stages
+
+        success {
+            echo 'Деплой прошёл успешно!'
+        }
+        failure {
+            echo 'Что-то сломалось — проверь логи!'
+            // здесь можно добавить уведомление в Slack
+        }
+        always {
+            sh 'docker system prune -f'
+            // always — выполнить в любом случае (чистка)
+        }
+    }
+}</pre>
+      </div>
+
+      <h2 id="jenkins-s2">Ключевые понятия Jenkins</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Словарь Jenkins</span>
+        </div>
+        <pre>Job / Pipeline  — задача или набор задач для выполнения
+Build           — один запуск pipeline (номер сборки)
+Stage           — этап pipeline (Checkout, Build, Test, Deploy)
+Step            — конкретное действие внутри stage
+Agent / Node    — машина где выполняется pipeline
+Artifact        — результат сборки (JAR, Docker image, .zip)
+Workspace       — временная папка где лежит код во время сборки
+Credential      — секрет (пароль, токен) хранящийся в Jenkins
+Trigger         — условие запуска (push, schedule, другой job)
+
+# Credentials — безопасное хранение секретов:
+# Jenkins → Manage Jenkins → Credentials
+# Добавить токен/пароль с ID → использовать в Jenkinsfile:
+withCredentials([string(credentialsId: 'docker-token', variable: 'TOKEN')]) {
+    sh 'docker login -u user -p ${TOKEN}'
+}</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Pipeline не запустился после push</div>
+        <p>Причина: Jenkins не знает о репозитории или не настроен webhook.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — настроить webhook</div>
+        <pre># В GitHub репозитории:
+# Settings → Webhooks → Add webhook
+# Payload URL: http://jenkins-server:8080/github-webhook/
+# Content type: application/json
+# Events: Just the push event
+
+# В Jenkins job:
+# Configure → Build Triggers → GitHub hook trigger for GITScm polling</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> Jenkinsfile нужно коммитить в репозиторий вместе с кодом. Это "pipeline as code" — конфигурация CI/CD хранится там же где код, версионируется и можно сделать code review изменений в pipeline.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

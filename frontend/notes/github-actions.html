@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — GitHub Actions — автоматизация</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="github-actions">
+      <h1>GitHub Actions — автоматизация</h1>
+      <p>GitHub Actions выполняет задачи автоматически при определённых событиях — например при каждом git push. Мы используем его для автоматической публикации сайта.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> GitHub Actions — это помощник которому ты дал инструкцию заранее. Ты отправил файлы (git push) — помощник автоматически опубликовал сайт. Ты занимаешься своим делом, он своим.
+      </div>
+
+      <h2 id="github-actions-s0">Структура workflow файла</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>.github/workflows/pages.yml</span>
+        </div>
+        <pre>name: Deploy to GitHub Pages
+# название — только для читаемости
+
+on:
+  push:
+    branches:
+      - main
+# когда запускать — при каждом push в ветку main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+# разрешения — что этому скрипту разрешено делать
+# pages: write — разрешить публикацию на GitHub Pages
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # runs-on — на какой виртуальной машине выполнять
+    # ubuntu-latest — GitHub предоставляет бесплатно
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # environment — окружение деплоя, сюда пишется URL сайта
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # скачать репозиторий на виртуальную машину
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        with:
+          enablement: true
+        # настроить GitHub Pages
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./frontend
+        # упаковать папку frontend/ для публикации
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        # опубликовать на GitHub Pages</pre>
+      </div>
+
+      <h2 id="github-actions-s1">Что происходит после git push</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Полный цикл деплоя</span>
+        </div>
+        <pre>1. git push                          # ты отправляешь изменения
+2. GitHub читает pages.yml           # находит инструкцию
+3. Запускает виртуальную машину Ubuntu
+4. actions/checkout — скачивает репозиторий
+5. actions/configure-pages — настраивает Pages
+6. actions/upload-pages-artifact — упаковывает frontend/
+7. actions/deploy-pages — публикует на сайт
+8. Сайт обновлён за 1-2 минуты</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">refusing to allow — нет прав на workflow</div>
+        <pre>refusing to allow a Personal Access Token to update workflow</pre>
+        <p>Причина: токен не имеет галочки workflow в правах.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение</div>
+        <p>GitHub → Settings → Developer settings → Personal access tokens → найди токен → добавь галочку <code>workflow</code> → сохрани новый токен → обнови в системе через <code>GIT_TERMINAL_PROMPT=1 GIT_ASKPASS="" git push</code></p>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> <code>uses: actions/checkout@v4</code> — это готовые блоки от GitHub, как кубики Lego. Не пишем всё с нуля — берём готовое и собираем pipeline из блоков.
+      </div>
+
+      <h2 id="github-actions-s2">CI/CD pipeline — три джоба</h2>
+      <p>Один workflow может содержать несколько джобов. Они могут работать параллельно или по очереди. Мы построили цепочку: test → build → deploy.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Это как сборочный конвейер на заводе. Сначала ОТК проверяет деталь (test). Параллельно другой рабочий красит корпус (build). Только если оба справились — деталь идёт в упаковку (deploy). Один брак — вся линия стоит.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>.github/workflows/pages.yml — три джоба</span>
+        </div>
+        <pre>jobs:
+
+  test:                          # джоб 1 — запускаем тесты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest httpx
+      - run: |
+          cd backend
+          pytest tests/ -v         # -v = verbose, показывает каждый тест
+
+  build:                         # джоб 2 — билдим Docker образ
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t portfolio-backend ./backend
+
+  deploy:                        # джоб 3 — деплоим на GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [test, build]         # ← КЛЮЧЕВОЕ: ждать test И build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v4
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./frontend
+      - id: deployment
+        uses: actions/deploy-pages@v4</pre>
+      </div>
+
+      <h2 id="github-actions-s3">needs: — зависимость между джобами</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Как работает needs:</span>
+        </div>
+        <pre>needs: [test, build]
+
+# Если test упал  → deploy НЕ запускается
+# Если build упал → deploy НЕ запускается
+# Оба прошли      → deploy запускается
+
+# build и test работают ПАРАЛЛЕЛЬНО (оба без needs)
+# deploy ждёт пока оба закончат</pre>
+      </div>
+
+      <div class="note">
+        <strong>Зачем это нужно:</strong> Мы намеренно сломали тест (написали <code>"broken"</code> вместо <code>"healthy"</code>) и убедились: test стал красным, deploy не запустился вообще. Сломанный код не попадёт на сайт — это главный принцип CI/CD.
+      </div>
+
+      <h2 id="github-actions-s4">pytest — тесты для FastAPI</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>backend/tests/test_main.py</span>
+        </div>
+        <pre>from fastapi.testclient import TestClient
+from app.main import app
+
+client = TestClient(app)    # имитирует браузер, не нужен реальный сервер
+
+def test_root():
+    response = client.get("/")
+    assert response.status_code == 200       # проверяем HTTP код
+    assert response.json()["status"] == "ok" # проверяем содержимое ответа
+
+def test_health():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Запустить тесты локально</span>
+        </div>
+        <pre>cd backend
+pytest tests/ -v
+
+# Вывод при успехе:
+# PASSED tests/test_main.py::test_root
+# PASSED tests/test_main.py::test_health
+# 2 passed in 0.31s
+
+# Вывод при ошибке:
+# FAILED tests/test_main.py::test_health
+# AssertionError: assert 'healthy' == 'broken'</pre>
+      </div>
+
+      <h2 id="github-actions-s5">concurrency — защита от конфликтов</h2>
+      <p>Если два push прилетают подряд, два pipeline запускаются одновременно и оба пытаются задеплоить — возникает конфликт артефактов. Решение: <code>concurrency</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Concurrency в workflow</span>
+        </div>
+        <pre>concurrency:
+  group: pages              # имя группы — все запуски с этим именем конкурируют
+  cancel-in-progress: true  # если новый пуш пришёл — отменить старый запуск
+
+# Результат: всегда деплоится только ПОСЛЕДНИЙ пуш
+# Старые запуски автоматически отменяются</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Multiple artifacts uploaded — конфликт деплоя</div>
+        <pre>Error: Multiple artifacts with the same name were uploaded</pre>
+        <p>Причина: два pipeline запустились одновременно и оба создали артефакт <code>github-pages</code>.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение</div>
+        <p>Добавить блок <code>concurrency:</code> в начало workflow файла. Новый push отменит предыдущий запуск автоматически.</p>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

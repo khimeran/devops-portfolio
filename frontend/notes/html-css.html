@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — HTML и CSS</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="html-css">
+      <h1>HTML и CSS</h1>
+      <p>HTML описывает структуру страницы, CSS — её внешний вид. Браузер читает оба файла и рисует то что видит пользователь.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> HTML — это скелет здания (стены, окна, двери). CSS — это дизайн интерьера (цвет стен, мебель, освещение). Без HTML нечего оформлять, без CSS всё выглядит как текст на белом фоне.
+      </div>
+
+      <h2 id="html-css-s0">Структура HTML файла</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HTML</span>
+          <span>Базовая структура любой страницы</span>
+        </div>
+        <pre>&lt;!DOCTYPE html&gt;
+&lt;!-- DOCTYPE — говорим браузеру что это HTML документ --&gt;
+
+&lt;html lang="ru"&gt;
+&lt;!-- html — корневой элемент, lang — язык страницы --&gt;
+
+&lt;head&gt;
+  &lt;!-- head — служебная информация, не видна пользователю --&gt;
+  &lt;meta charset="UTF-8"&gt;
+  &lt;!-- charset — кодировка, UTF-8 поддерживает русские буквы --&gt;
+
+  &lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;
+  &lt;!-- viewport — страница нормально выглядит на телефоне --&gt;
+
+  &lt;title&gt;Название вкладки&lt;/title&gt;
+  &lt;style&gt; ... &lt;/style&gt;
+  &lt;!-- style — CSS стили внутри HTML файла --&gt;
+&lt;/head&gt;
+
+&lt;body&gt;
+  &lt;!-- body — всё что видит пользователь --&gt;
+  &lt;h1&gt;Заголовок&lt;/h1&gt;
+  &lt;p&gt;Параграф текста&lt;/p&gt;
+  &lt;div&gt;Блок-контейнер&lt;/div&gt;
+  &lt;span&gt;Строчный элемент&lt;/span&gt;
+  &lt;a href="page.html"&gt;Ссылка&lt;/a&gt;
+&lt;/body&gt;
+&lt;/html&gt;</pre>
+      </div>
+
+      <h2 id="html-css-s1">Основные CSS свойства</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CSS</span>
+          <span>Цвет, шрифт, отступы</span>
+        </div>
+        <pre>body {
+  background: #0d1117;   /* цвет фона */
+  color: #e6edf3;        /* цвет текста */
+  font-family: sans-serif; /* шрифт */
+  padding: 2rem;         /* отступ внутри элемента */
+  margin: 0 auto;        /* центрировать по горизонтали */
+  max-width: 900px;      /* максимальная ширина */
+}
+
+h1 {
+  font-size: 2rem;       /* размер шрифта */
+  font-weight: bold;     /* жирный */
+  border-bottom: 1px solid #30363d; /* линия снизу */
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CSS</span>
+          <span>Flexbox — расположение элементов</span>
+        </div>
+        <pre>.container {
+  display: flex;                  /* включить flexbox */
+  justify-content: space-between; /* элементы по краям */
+  align-items: center;            /* выровнять по центру вертикально */
+  gap: 1rem;                      /* расстояние между элементами */
+}
+
+/* sidebar + content — два блока в строку */
+body {
+  display: flex;    /* sidebar слева, content справа */
+  height: 100vh;    /* на весь экран (vh = viewport height) */
+}
+.sidebar { width: 220px; flex-shrink: 0; }
+.content  { flex: 1; }  /* занять всё оставшееся место */</pre>
+      </div>
+
+      <h2 id="html-css-s2">Типы блоков</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CSS</span>
+          <span>display: block vs inline</span>
+        </div>
+        <pre>/* block — занимает всю ширину строки, следующий элемент на новой строке */
+div, h1, h2, p, pre { display: block; }
+
+/* inline — занимает только место текста, элементы идут в строку */
+span, a, code, strong { display: inline; }
+
+/* inline-block — как inline но можно задать ширину и высоту */
+.badge { display: inline-block; padding: 0.2rem 0.7rem; }</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> каждый HTML тег нужно закрыть — <code>&lt;div&gt;</code> закрывается <code>&lt;/div&gt;</code>. Исключения: <code>&lt;meta&gt;</code>, <code>&lt;input&gt;</code>, <code>&lt;br&gt;</code> — самозакрывающиеся теги.
+      </div>
+
+      <h2 id="html-css-s3">IntersectionObserver — отслеживание видимости</h2>
+      <p>Браузерный API который следит за тем, какой элемент сейчас виден на экране. Мы используем его для scroll spy — автоматического переключения активного пункта в меню при прокрутке.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">JAVASCRIPT</span>
+          <span>Scroll spy в notes.html</span>
+        </div>
+        <pre>const sections = document.querySelectorAll('section');
+// querySelectorAll — найти все элементы на странице по селектору
+// 'section' — все теги &lt;section&gt;
+
+const observer = new IntersectionObserver(entries => {
+// IntersectionObserver — создать наблюдателя
+// entries — список элементов которые изменили видимость
+
+  entries.forEach(entry => {
+  // forEach — пройти по каждому изменению
+
+    if (entry.isIntersecting) {
+    // isIntersecting — элемент сейчас виден в области просмотра
+
+      const id = entry.target.id;
+      // target — сам элемент, id — его атрибут id (например "git")
+
+      links.forEach(l => l.classList.remove('active'));
+      // убрать выделение у всех ссылок
+
+      const active = document.querySelector(`.sidebar a[href="#${id}"]`);
+      // найти ссылку в меню которая ведёт на этот раздел
+      // [href="#git"] — ссылка с атрибутом href равным "#git"
+
+      if (active) active.classList.add('active');
+      // добавить выделение найденной ссылке
+    }
+  });
+
+}, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
+// rootMargin — сжимаем область срабатывания:
+//   '0px 0px -70% 0px' = сверху 0, справа 0, снизу -70%, слева 0
+//   срабатывает когда верх секции входит в верхние 30% экрана
+// threshold: 0 — срабатывать как только хоть пиксель виден
+
+sections.forEach(section => observer.observe(section));
+// observe — начать наблюдать за каждой секцией</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Scroll spy не переключается на длинных разделах</div>
+        <p>Причина: <code>threshold: 0.3</code> требует что 30% элемента видно. Для длинных разделов это может не выполняться никогда.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — использовать rootMargin вместо threshold</div>
+        <pre>{ rootMargin: '0px 0px -70% 0px', threshold: 0 }
+// threshold: 0 — срабатывает при любой видимости
+// rootMargin -70% снизу — активируется когда верх секции
+// попадает в верхние 30% экрана</pre>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

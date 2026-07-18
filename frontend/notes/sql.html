@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — SQL и PostgreSQL</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="sql">
+      <h1>SQL и PostgreSQL</h1>
+      <p>SQL — язык запросов к базе данных. PostgreSQL — одна из самых популярных реляционных баз данных.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> База данных — это Excel таблица. SQL — это команды для работы с ней: добавить строку, найти строку, изменить, удалить.
+      </div>
+
+      <h2 id="sql-s0">Миграция — создание таблицы</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>db/001_create_topics.sql</span>
+        </div>
+        <pre>CREATE TABLE IF NOT EXISTS topics (
+-- CREATE TABLE — создать таблицу
+-- IF NOT EXISTS — не падать с ошибкой если таблица уже есть
+
+    id         SERIAL PRIMARY KEY,
+    -- SERIAL — автоматически увеличивается (1, 2, 3...)
+    -- PRIMARY KEY — уникальный идентификатор строки
+
+    name       VARCHAR(100) NOT NULL,
+    -- VARCHAR(100) — текст до 100 символов
+    -- NOT NULL — обязательное поле, не может быть пустым
+
+    progress   INTEGER DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
+    -- INTEGER — целое число
+    -- DEFAULT 0 — по умолчанию 0
+    -- CHECK — ограничение: только от 0 до 100
+
+    notes      TEXT,
+    -- TEXT — текст любой длины, может быть пустым
+
+    updated_at TIMESTAMP DEFAULT NOW()
+    -- TIMESTAMP — дата и время
+    -- NOW() — автоматически ставит текущее время
+);
+
+INSERT INTO topics (name, progress, notes) VALUES
+-- INSERT INTO — добавить строки в таблицу
+    ('Docker',         80, 'Образы, контейнеры, docker-compose'),
+    ('Git',            70, 'add, commit, push, ветки'),
+    ('GitHub Actions', 40, 'Первый workflow, GitHub Pages');</pre>
+      </div>
+
+      <h2 id="sql-s1">Основные SQL команды</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Базовые операции</span>
+        </div>
+        <pre>SELECT * FROM topics;
+-- SELECT — получить данные, * — все колонки
+
+SELECT id, name, progress FROM topics WHERE progress > 50;
+-- WHERE — условие фильтрации
+
+UPDATE topics SET progress = 90 WHERE id = 1;
+-- UPDATE — обновить строку
+
+DELETE FROM topics WHERE id = 5;
+-- DELETE — удалить строку (осторожно без WHERE удалит всё!)
+
+ORDER BY id ASC   -- сортировать по id по возрастанию
+ORDER BY id DESC  -- по убыванию</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Миграция не выполнилась при запуске</div>
+        <pre>ls: cannot open directory '/docker-entrypoint-initdb.d/': Permission denied</pre>
+        <p>Причина: PostgreSQL выполняет SQL файлы из этой папки только при первом запуске — если данные уже существуют, миграция пропускается.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — удалить старые данные и перезапустить</div>
+        <pre>docker compose down
+docker volume prune    # удалить старые данные БД
+docker compose up -d   # запустить заново — миграция выполнится</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> <code>%s</code> в Python запросах — это не строка формата, а защита от SQL инъекций. Всегда передавай значения вторым аргументом в <code>cur.execute()</code>, никогда не вставляй их напрямую в строку запроса.
+      </div>
+
+      <h2 id="sql-s2">EXPLAIN ANALYZE — анализ запросов</h2>
+      <p>Команда которая показывает как PostgreSQL выполняет запрос изнутри. Главный инструмент для поиска проблем с производительностью.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Синтаксис</span>
+        </div>
+        <pre>EXPLAIN ANALYZE SELECT * FROM topics WHERE progress > 20;
+
+-- EXPLAIN      — показать план без выполнения
+-- EXPLAIN ANALYZE — выполнить запрос и показать реальное время</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Как читать вывод</span>
+        </div>
+        <pre>Seq Scan on topics  (cost=0.00..13.38 rows=90 width=266)
+                    (actual time=0.007..0.009 rows=6 loops=1)
+  Filter: (progress > 20)
+  Rows Removed by Filter: 4
+Planning Time: 0.052 ms
+Execution Time: 0.033 ms
+
+Seq Scan        — читает ВСЕ строки подряд (плохо на больших таблицах)
+Index Scan      — использует индекс (быстро на больших таблицах)
+Bitmap Heap Scan — комбинированный метод через индекс
+
+cost=0.00..13.38 — предполагаемая стоимость (условные единицы)
+rows=90          — PostgreSQL ПРЕДПОЛАГАЛ найти 90 строк
+actual rows=6    — реально нашёл 6 (статистика была устаревшей)
+Execution Time   — реальное время выполнения в миллисекундах</pre>
+      </div>
+
+      <h2 id="sql-s3">Индексы — ускорение поиска</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Создание и удаление индекса</span>
+        </div>
+        <pre>-- Создать индекс:
+CREATE INDEX idx_topics_progress ON topics(progress);
+-- idx_topics_progress — название (придумываем сами, обычно idx_таблица_колонка)
+-- topics(progress)    — таблица и колонка по которой индексируем
+
+-- Посмотреть все индексы:
+\d topics
+
+-- Удалить индекс:
+DROP INDEX idx_topics_progress;</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Когда индекс помогает, а когда нет</span>
+        </div>
+        <pre>-- НЕ использует индекс (80% строк — выгоднее Seq Scan):
+EXPLAIN ANALYZE SELECT * FROM topics WHERE progress > 20;
+-- Seq Scan   Execution Time: 0.936 ms
+
+-- Использует индекс (5% строк — индекс ускоряет):
+EXPLAIN ANALYZE SELECT * FROM topics WHERE progress > 95;
+-- Bitmap Index Scan   Execution Time: 0.219 ms
+
+-- Вывод: индекс работает когда запрос ИЗБИРАТЕЛЬНЫЙ
+-- возвращает малую часть строк (< 10-15% таблицы)
+-- На миллионах строк разница: секунды vs миллисекунды</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Подключиться к PostgreSQL в контейнере</span>
+        </div>
+        <pre>docker exec -it devops-portfolio-db-1 psql -U devops -d portfolio
+-- exec    — выполнить команду внутри контейнера
+-- -it     — интерактивный режим с терминалом
+-- psql    — клиент PostgreSQL
+-- -U      — пользователь
+-- -d      — база данных
+
+-- Выйти из psql:
+\q
+
+-- Посмотреть все таблицы:
+\dt
+
+-- Структура таблицы:
+\d topics</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> Индекс — как оглавление в книге. Без него PostgreSQL читает все строки подряд (Seq Scan). С индексом — сразу находит нужные строки. Но на маленьких таблицах (до тысячи строк) PostgreSQL сам выберет Seq Scan — это быстрее чем лезть в индекс. PRIMARY KEY создаёт индекс автоматически.
+      </div>
+
+      <h2 id="sql-s4">JOIN — объединение таблиц</h2>
+      <p>JOIN объединяет строки из двух таблиц по связанной колонке. Без JOIN нельзя работать с реальными базами где данные разнесены по нескольким таблицам.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Виды JOIN</span>
+        </div>
+        <pre>-- INNER JOIN — только совпадающие строки в обеих таблицах:
+SELECT users.name, topics.name, progress_log.new_progress
+FROM progress_log
+INNER JOIN users  ON progress_log.user_id = users.id
+INNER JOIN topics ON progress_log.topic_id = topics.id;
+
+-- LEFT JOIN — все строки левой таблицы + совпадения из правой:
+SELECT users.name, progress_log.new_progress
+FROM users
+LEFT JOIN progress_log ON users.id = progress_log.user_id;
+-- пользователи без записей тоже попадут в результат (NULL вместо данных)
+
+-- RIGHT JOIN — все строки правой таблицы + совпадения из левой
+-- FULL JOIN  — все строки из обеих таблиц</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> INNER JOIN — самый частый. LEFT JOIN используют когда нужны все записи из главной таблицы даже если связанных данных нет. Результат JOIN — новая временная таблица из объединённых колонок обеих таблиц.
+      </div>
+
+      <h3>Капкан: <code>WHERE</code> на правой таблице убивает LEFT JOIN</h3>
+      <p>Главная ловушка LEFT JOIN, на которой палятся даже мидлы. Стоит написать условие на колонку <strong>правой</strong> таблицы в <code>WHERE</code> — и LEFT JOIN тихо превращается в INNER JOIN. Прямое следствие того, что <strong>NULL не проходит <code>WHERE</code></strong>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Как нечаянно превратить LEFT в INNER — и как не надо</span>
+        </div>
+        <pre>-- ❌ ЛОВУШКА: условие на правую таблицу (orders) в WHERE
+SELECT u.name, o.amount
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE o.amount > 100;
+-- у юзеров БЕЗ заказов o.amount = NULL
+-- NULL > 100  =  NULL  (не TRUE!)  → WHERE их выбрасывает
+-- итог: беззаказные юзеры исчезли, LEFT работает как INNER
+
+-- ✅ ПРАВИЛЬНО: фильтр правой таблицы — в ON, а не в WHERE
+SELECT u.name, o.amount
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id AND o.amount > 100;
+-- все юзеры на месте; нет заказа >100 → просто NULL в колонке
+
+-- ✅ Найти юзеров БЕЗ заказов ("мёртвые души"):
+SELECT u.*
+FROM users u
+LEFT JOIN orders o ON o.user_id = u.id
+WHERE o.id IS NULL;          -- заказа нет → колонка NULL → пустой юзер</pre>
+      </div>
+
+      <div class="note">
+        <strong>Правило:</strong> фильтр по <strong>левой</strong> таблице можно класть в <code>WHERE</code>; фильтр по <strong>правой</strong> (которую LEFT сохраняет) — только в <code>ON</code>, иначе NULL не пройдёт <code>WHERE</code> и LEFT схлопнется в INNER. Прямая связь с разделом «NULL — заражает всё».
+      </div>
+
+      <h2 id="sql-s5">GROUP BY и HAVING — группировка</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Агрегатные функции и группировка</span>
+        </div>
+        <pre>-- Агрегатные функции:
+SELECT COUNT(*)        FROM topics;  -- количество строк
+SELECT AVG(progress)   FROM topics;  -- среднее значение
+SELECT SUM(progress)   FROM topics;  -- сумма
+SELECT MAX(progress)   FROM topics;  -- максимум
+SELECT MIN(progress)   FROM topics;  -- минимум
+
+-- GROUP BY — считать агрегат для каждой группы отдельно:
+SELECT
+  CASE
+    WHEN progress = 0  THEN 'не начато'
+    WHEN progress < 50 THEN 'в процессе'
+    ELSE                    'почти готово'
+  END AS статус,
+  COUNT(*) AS количество
+FROM topics
+GROUP BY статус;
+
+-- HAVING — фильтр ПОСЛЕ группировки (WHERE нельзя использовать с агрегатами):
+SELECT name, AVG(progress)
+FROM topics
+GROUP BY name
+HAVING AVG(progress) > 30;
+-- WHERE — фильтрует строки ДО группировки
+-- HAVING — фильтрует группы ПОСЛЕ GROUP BY</pre>
+      </div>
+
+      <h2 id="sql-s6">NULL — ловушки</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Правильная работа с NULL</span>
+        </div>
+        <pre>-- НЕПРАВИЛЬНО — всегда вернёт 0 строк:
+SELECT * FROM topics WHERE notes = NULL;
+
+-- ПРАВИЛЬНО:
+SELECT * FROM topics WHERE notes IS NULL;
+SELECT * FROM topics WHERE notes IS NOT NULL;
+
+-- Ловушка с != :
+WHERE notes != 'test'
+-- строки где notes = NULL тоже НЕ попадут в результат!
+
+-- Правильно:
+WHERE notes != 'test' OR notes IS NULL;
+
+-- COALESCE — заменить NULL на значение по умолчанию:
+SELECT name, COALESCE(notes, 'нет заметок') FROM topics;</pre>
+      </div>
+
+      <h2 id="sql-s7">ALTER TABLE — изменение структуры</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Изменение таблицы</span>
+        </div>
+        <pre>-- Добавить колонку:
+ALTER TABLE topics ADD COLUMN category VARCHAR(50) DEFAULT 'general';
+-- DEFAULT — существующие строки получат это значение автоматически
+
+-- Удалить колонку:
+ALTER TABLE topics DROP COLUMN category;
+
+-- Переименовать колонку:
+ALTER TABLE topics RENAME COLUMN notes TO description;
+
+-- Изменить тип данных:
+ALTER TABLE topics ALTER COLUMN progress TYPE BIGINT;</pre>
+      </div>
+
+      <h2 id="sql-s8">DELETE vs TRUNCATE</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SQL</span>
+          <span>Удаление данных</span>
+        </div>
+        <pre>DELETE FROM topics WHERE id = 5;
+-- удалить конкретную строку — всегда используй WHERE!
+
+DELETE FROM topics;
+-- удалить ВСЕ строки — медленно, можно откатить через ROLLBACK
+-- счётчик SERIAL не сбрасывается
+
+TRUNCATE TABLE topics;
+-- очистить таблицу мгновенно — быстро на миллионах строк
+-- сбрасывает счётчик SERIAL обратно в 1
+-- нельзя откатить
+
+-- Правило: DELETE для конкретных строк, TRUNCATE для полной очистки таблицы</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Миграция 002 не выполнилась на существующей базе</div>
+        <p>PostgreSQL выполняет SQL файлы из <code>docker-entrypoint-initdb.d</code> только при первом старте. Если база уже существует — новые файлы игнорируются.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — добавить данные вручную через psql</div>
+        <pre>docker exec -it devops-portfolio-db-1 psql -U devops -d portfolio
+
+INSERT INTO topics (name, progress, notes) VALUES
+  ('Ansible', 0, ''),
+  ('Jenkins', 0, '');
+-- INSERT 0 2 — означает: успешно, добавлено 2 строки</pre>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

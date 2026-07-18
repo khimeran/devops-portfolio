@@ -613,8 +613,8 @@
     <!-- ================ PHASE 5 ================ -->
     <h2 id="phase5">🔧 ФАЗА 5 · CI/CD</h2>
     <div class="card">
-      <span class="badge orange">3 дня</span>
-      <span class="badge blue">4 модуля</span>
+      <span class="badge orange">5 дней</span>
+      <span class="badge blue">5 модулей</span>
       <p>Расширяем твой <code>pages.yml</code> до полноценного пайплайна: матричные сборки, push в registry, стратегии деплоя.</p>
 
       <div class="module">
@@ -631,6 +631,11 @@
         <div class="module-head">📦 5.3 · Docker registry + semver + стратегии деплоя <span class="badge red">🔥</span></div>
         <div class="module-meta">1 день</div>
         <div class="module-desc">Push в GHCR. Теги <code>:v1.2.3</code>, <code>:sha-abc</code>. Blue-green, canary, feature flags. Rollback.</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 5.4 · Airflow — оркестратор задач <span class="badge red">🔥 стажировка</span></div>
+        <div class="module-meta">2 дня</div>
+        <div class="module-desc">DAG, операторы, scheduler / webserver / metadata DB. Executors: Sequential → Local → Celery. Развернуть v2 без Docker: systemd-сервисы, внешний PostgreSQL, git-sync для дагов. Теория уже в конспектах (раздел Airflow).</div>
       </div>
 
       <div class="phase-project">
@@ -727,9 +732,9 @@
     <!-- ================ PHASE 8 ================ -->
     <h2 id="phase8">⚙️ ФАЗА 8 · Ansible</h2>
     <div class="card">
-      <span class="badge orange">5 дней</span>
-      <span class="badge blue">6 модулей</span>
-      <p>Первый IaC. Поднимает целые серверы по описанию в YAML. Идемпотентность, playbooks, roles.</p>
+      <span class="badge orange">6 дней</span>
+      <span class="badge blue">7 модулей</span>
+      <p>Первый IaC. Поднимает целые серверы по описанию в YAML. Идемпотентность, playbooks, roles. Плюс Puppet и HashiCorp Vault для полноты картины.</p>
 
       <div class="module">
         <div class="module-head">📦 8.1 · Идемпотентность + inventory + ad-hoc <span class="badge red">🔥</span></div>
@@ -754,7 +759,12 @@
       <div class="module">
         <div class="module-head">📦 8.5 · Vault + production практики</div>
         <div class="module-meta">1 день</div>
-        <div class="module-desc"><code>ansible-vault</code> для секретов. <code>--check</code>, <code>--diff</code>, теги, Molecule для тестов.</div>
+        <div class="module-desc"><code>ansible-vault</code> для секретов. <code>--check</code>, <code>--diff</code>, теги, Molecule для тестов. Плюс знакомство с HashiCorp Vault: seal/unseal, политики, динамические секреты (теория — в конспектах, «Важно для DevOps»).</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 8.6 · Puppet — конфиг-менеджмент с агентами</div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Pull-модель против push: агент раз в 30 минут сам приводит сервер к манифесту. Манифесты <code>.pp</code>, facter, самолечение дрейфа. Сравнение с Ansible (теория — в конспектах, раздел Ansible).</div>
       </div>
 
       <div class="phase-project">

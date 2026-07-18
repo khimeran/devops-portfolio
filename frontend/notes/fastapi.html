@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — FastAPI — бэкенд на Python</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="fastapi">
+      <h1>FastAPI — бэкенд на Python</h1>
+      <p>FastAPI — фреймворк для создания API на Python. Быстрый, современный, автоматически генерирует документацию.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> API — это официант в ресторане. Ты (фронтенд) говоришь официанту что хочешь, он идёт на кухню (база данных) и приносит результат. Ты не знаешь как устроена кухня — тебе важен только результат.
+      </div>
+
+      <h2 id="fastapi-s0">Структура приложения</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>backend/app/main.py</span>
+        </div>
+        <pre>from fastapi import FastAPI, HTTPException
+# import — подключить библиотеку
+# FastAPI — основной класс приложения
+# HTTPException — возвращать ошибки с кодом (400, 500...)
+
+from fastapi.middleware.cors import CORSMiddleware
+# CORS — разрешить фронтенду обращаться к API с другого адреса
+
+import psycopg2
+# драйвер для подключения к PostgreSQL
+
+import os
+# встроенная библиотека Python для работы с переменными окружения
+
+app = FastAPI(title="DevOps Portfolio API")
+# создаём приложение
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # * = разрешить всем сайтам
+    allow_methods=["*"],
+    allow_headers=["*"],
+)</pre>
+      </div>
+
+      <h2 id="fastapi-s1">Эндпоинты</h2>
+      <p>Эндпоинт — адрес на который можно отправить запрос. Каждый эндпоинт делает одно конкретное действие.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>GET запросы — получить данные</span>
+        </div>
+        <pre>@app.get("/")
+# @app.get — декоратор: при GET запросе на "/" вызвать функцию ниже
+def root():
+    return {"status": "ok"}
+# return — вернуть JSON ответ
+
+@app.get("/topics")
+def get_topics():
+    conn = get_db()          # открыть соединение с базой
+    cur = conn.cursor()      # инструмент для SQL запросов
+    cur.execute("SELECT id, name, progress, notes FROM topics")
+    rows = cur.fetchall()    # получить все строки
+    cur.close()
+    conn.close()             # закрыть соединение
+    return [
+        {"id": r[0], "name": r[1], "progress": r[2], "notes": r[3]}
+        for r in rows        # list comprehension — создать список из строк
+    ]</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>PUT запрос — обновить данные</span>
+        </div>
+        <pre>@app.put("/topics/{topic_id}")
+# {topic_id} — переменная в URL, например /topics/3
+def update_topic(topic_id: int, progress: int, notes: str = ""):
+# topic_id: int — FastAPI проверит что это число
+# notes: str = "" — необязательный параметр, по умолчанию пустая строка
+
+    if progress < 0 or progress > 100:
+        raise HTTPException(status_code=400, detail="Progress must be 0-100")
+    # 400 — код ошибки "неправильный запрос"
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE topics SET progress=%s, notes=%s WHERE id=%s",
+        (progress, notes, topic_id)
+    )
+    # %s — заполнитель для значений (защита от SQL инъекций)
+    conn.commit()   # подтвердить изменения — без этого не сохранится
+    cur.close()
+    conn.close()
+    return {"status": "updated"}</pre>
+      </div>
+
+      <h2 id="fastapi-s2">HTTP методы</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Проверка эндпоинтов через curl</span>
+        </div>
+        <pre>curl http://localhost:8000/topics
+# GET запрос — получить все темы
+
+curl -X PUT "http://localhost:8000/topics/1?progress=90&notes=done"
+# PUT запрос — обновить тему с id=1
+# -X PUT — указать метод
+# ?progress=90 — параметры запроса</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> GET — получить данные, PUT — обновить существующие, POST — создать новые, DELETE — удалить. Это стандарт REST API.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

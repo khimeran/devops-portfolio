@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — 🟢 nginx — веб-сервер и reverse proxy</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="nginx">
+      <h1>🟢 nginx — веб-сервер и reverse proxy</h1>
+      <p>nginx — программа, которая слушает TCP-порт и отвечает на HTTP-запросы. То же делают Python <code>http.server</code>, Apache, Node Express, Go <code>net/http</code> — но nginx сделан под высокую нагрузку и обычно стоит <strong>перед</strong> другими приложениями (reverse proxy). Этот блок: модель процессов, конфиги, server/location, proxy_pass, балансировка, SSL, SELinux-ловушка на Fedora.</p>
+
+      <h2 id="nginx-s0">Модель процессов</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Что происходит при systemctl start nginx</span>
+        </div>
+        <pre>1. systemd запускает /usr/sbin/nginx (от root — нужно чтобы привязаться к :80)
+2. nginx форкается в МАСТЕР-процесс
+3. Мастер читает /etc/nginx/nginx.conf
+4. Мастер форкает РАБОЧИЕ процессы (workers) —
+   по одному на ядро CPU (worker_processes auto)
+5. Мастер дальше следит за воркерами, перечитывает конфиг по reload
+6. Воркеры слушают порты, сразу понижают права до юзера nginx
+   ⭐ безопасность: дыра в воркере = атакующий получит права nginx,
+   а не root
+
+# Проверь:
+ps -ef | grep nginx
+# увидишь: 1 master + N workers (N = nproc)</pre>
+      </div>
+
+      <h2 id="nginx-s1">Структура файлов</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATHS</span>
+          <span>Где что лежит на Fedora/RHEL</span>
+        </div>
+        <pre>/usr/sbin/nginx           бинарник
+/etc/nginx/               конфиги, ты их редактируешь
+   nginx.conf             корневой
+   conf.d/*.conf          ⭐ СЮДА кладёшь свои server-блоки
+   default.d/*.conf       в дефолтный server-блок добавочные location'ы
+   mime.types             расширение → MIME-тип
+   *.default              нетронутые копии заводских (на случай факапа)
+/usr/share/nginx/html/    дефолтная папка со статикой ("Welcome to nginx")
+/var/log/nginx/
+   access.log             ⭐ каждый запрос — строка
+   error.log              ⭐ ошибки конфига и обработки
+/var/cache/nginx/         кэш (если включён)
+/run/nginx.pid            файл с PID мастера
+
+# ⚠️ На Debian/Ubuntu схема ДРУГАЯ:
+#    /etc/nginx/sites-available/  +  /etc/nginx/sites-enabled/
+#    (симлинки between them, аналог /etc/systemd/system/*.wants/)</pre>
+      </div>
+
+      <h2 id="nginx-s2">Структура конфига</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HIERARCHY</span>
+          <span>Блоки nginx.conf</span>
+        </div>
+        <pre>main context (глобальные настройки)
+  ├─ user nginx;                       воркеры от этого юзера
+  ├─ worker_processes auto;            по одному на ядро
+  └─ events { worker_connections 1024; }  каждый воркер тянет 1024 коннекта
+       # 4 ядра × 1024 = ~4096 одновременных соединений
+
+  http {
+       sendfile on;                    ⭐ zero-copy отдача статики (быстро)
+       keepalive_timeout 65;           держать коннект 65 сек после ответа
+       include /etc/nginx/mime.types;
+
+       log_format main '$remote_addr - $remote_user [$time_local] ...';
+       access_log /var/log/nginx/access.log main;
+
+       server {                        ВИРТУАЛЬНЫЙ ХОСТ (сайт)
+           listen 80;
+           server_name example.com;
+           root /var/www/example;
+
+           location / { ... }          КАК обрабатывать конкретный путь
+           location /api/ { ... }
+       }
+
+       include /etc/nginx/conf.d/*.conf;    ⭐ подгрузить твои конфиги
+  }</pre>
+      </div>
+
+      <h2 id="nginx-s3">Welcome-страница — откуда</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EXPLAIN</span>
+          <span>Откуда берётся «Welcome to nginx!»</span>
+        </div>
+        <pre>В дефолтном /etc/nginx/nginx.conf есть:
+   server {
+       listen 80;
+       server_name _;                   "_" = catch-all
+       root /usr/share/nginx/html;      ⭐ корень для файлов
+   }
+
+# GET / → nginx ищет /usr/share/nginx/html/index.html → отдаёт
+# Это и есть "Welcome to nginx" — обычный HTML-файл в этой папке.
+
+# Хочешь свой сайт? Положи свой index.html и стилей в /usr/share/nginx/html/
+# Или поменяй root на /var/www/myapp/ и положи туда.</pre>
+      </div>
+
+      <h2 id="nginx-s4">Как nginx выбирает <code>server</code> и <code>location</code></h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">VIRTUAL HOSTS</span>
+          <span>Несколько сайтов на одном IP</span>
+        </div>
+        <pre># На один порт может слушать несколько server { } блоков:
+server {
+    listen 80;
+    server_name example.com;       ← если Host: example.com → сюда
+    root /var/www/example;
+}
+server {
+    listen 80;
+    server_name kirill.dev;        ← если Host: kirill.dev → сюда
+    root /var/www/kirill;
+}
+server {
+    listen 80 default_server;
+    server_name _;                 ← всё, что не подошло → сюда
+    root /usr/share/nginx/html;
+}
+
+# nginx смотрит ЗАГОЛОВОК Host: в HTTP-запросе (его шлёт браузер всегда)
+# и выбирает подходящий server. На одном IP — сотни сайтов.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">LOCATION</span>
+          <span>Правила выбора внутри server</span>
+        </div>
+        <pre>location = /exact          ТОЧНОЕ совпадение — самый высокий приоритет
+location ^~ /assets/       префикс, не проверять регулярки после
+location ~ \.php$          регулярка, регистрозависимая
+location ~* \.(png|jpg)$   регулярка, БЕЗ учёта регистра
+location /api/             обычный префикс — самый длинный выигрывает
+location /                 «всё остальное», fallback
+
+# Алгоритм:
+# 1. Точное совпадение (=) — если есть, ВЫИГРАЛО, стоп.
+# 2. Префиксы с ^~ — если есть, регулярки не смотрим.
+# 3. Регулярки (~ и ~*) — по порядку записи.
+# 4. Обычные префиксы — самый длинный выигрывает.</pre>
+      </div>
+
+      <h2 id="nginx-s5">Reverse proxy через <code>proxy_pass</code></h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EXAMPLE</span>
+          <span>Передача запросов бэкенду</span>
+        </div>
+        <pre>location /api/ {
+    proxy_pass http://127.0.0.1:9000/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ Слэш в proxy_pass — главная грабля nginx:</strong>
+        <br><code>proxy_pass http://backend:9000/;</code> (со слэшем) — УДАЛИТЬ <code>/api/</code> из URL, передать остаток. Запрос <code>/api/users</code> уйдёт бэкенду как <code>/users</code>.
+        <br><code>proxy_pass http://backend:9000;</code> (без слэша) — оставить путь как есть. Запрос <code>/api/users</code> уйдёт как <code>/api/users</code>.
+        <br>Запомни: <strong>есть слэш = подменить префикс, нет слэша = оставить весь путь</strong>.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HEADERS</span>
+          <span>Зачем proxy_set_header</span>
+        </div>
+        <pre>По умолчанию бэкенд видит:
+   Host: имя из proxy_pass (т.е. "127.0.0.1:9000")
+   IP клиента: IP nginx'а (т.е. 127.0.0.1)
+   Схема: всегда HTTP, не HTTPS
+
+⭐ Это часто ЛОМАЕТ приложение:
+   — генерация ссылок будет на "127.0.0.1:9000"
+   — логи будут показывать nginx как клиента
+   — приложение не знает, что снаружи был HTTPS
+
+Поэтому стандартный набор заголовков:
+   proxy_set_header Host $host;
+                    ← передать оригинальный Host: ("example.com")
+   proxy_set_header X-Real-IP $remote_addr;
+                    ← реальный IP клиента
+   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    ← цепочка прокси (если их несколько)
+   proxy_set_header X-Forwarded-Proto $scheme;
+                    ← была ли изначально HTTPS-схема
+
+# Приложение (FastAPI, Django) умеет читать эти заголовки
+# через middleware (например, TrustedHostMiddleware + ProxyHeadersMiddleware).</pre>
+      </div>
+
+      <h2 id="nginx-s6">SELinux-ловушка на Fedora</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SYMPTOM</span>
+          <span>502 Bad Gateway при правильном конфиге</span>
+        </div>
+        <pre># Конфиг правильный, бэкенд жив:
+curl http://127.0.0.1:9000/      ✓ работает напрямую
+curl http://localhost:8080/api/  ✗ 502 Bad Gateway
+
+# В /var/log/nginx/error.log:
+connect() to 127.0.0.1:9000 failed (13: Permission denied)
+                                    ↑ это SELinux, не файловые права!
+
+# Причина: SELinux запрещает nginx делать ИСХОДЯЩИЕ TCP-соединения.
+# Политика httpd_t не пускает в обычные порты.
+
+# Лечение:
+sudo setsebool -P httpd_can_network_connect on
+                ↑ -P = persistent (сохранить через ребут)
+
+# Проверка:
+getsebool httpd_can_network_connect       # должно: on
+
+# Альтернатива (для конкретного порта):
+sudo semanage port -a -t http_port_t -p tcp 9000</pre>
+      </div>
+
+      <h2 id="nginx-s7">Балансировка нагрузки через <code>upstream</code></h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EXAMPLE</span>
+          <span>Несколько бэкендов за одним nginx</span>
+        </div>
+        <pre>http {
+    upstream backend {
+        server 127.0.0.1:9000;
+        server 127.0.0.1:9001;
+        server 127.0.0.1:9002 weight=2;        ← в 2 раза больше нагрузки
+        server backup.local:9000 backup;        ← резерв, если все основные упали
+
+        # Алгоритм:
+        # (по умолчанию) round-robin — по очереди
+        # least_conn;      — кому меньше всего соединений
+        # ip_hash;         — один клиент всегда на один сервер (sticky)
+        # hash $request_uri consistent;  — по URL (для кэшей)
+
+        # Таймауты:
+        keepalive 32;     ← держать 32 коннекта к каждому бэкенду
+    }
+
+    server {
+        listen 8080;
+        location / {
+            proxy_pass http://backend;          ← упомянуть имя из upstream
+            proxy_set_header Host $host;
+        }
+    }
+}
+
+# Если бэкенд не ответил — nginx сам перенаправит к следующему,
+# и пометит мёртвый как недоступный на fail_timeout (по умолчанию 10 сек).</pre>
+      </div>
+
+      <h2 id="nginx-s8">SSL/TLS — HTTPS на nginx</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EXAMPLE</span>
+          <span>Минимальный HTTPS-блок</span>
+        </div>
+        <pre>server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    # Рекомендованная Mozilla конфигурация:
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Редирект с HTTP на HTTPS:
+server {
+    listen 80;
+    server_name example.com;
+    return 301 https://$host$request_uri;
+}
+
+# Сертификаты — через Let's Encrypt:
+sudo dnf install certbot python3-certbot-nginx
+sudo certbot --nginx -d example.com
+# certbot сам пропишет конфиг и поставит автообновление</pre>
+      </div>
+
+      <h2 id="nginx-s9">Логи и debug</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">LOGS</span>
+          <span>Что и где смотреть</span>
+        </div>
+        <pre>/var/log/nginx/access.log   каждый запрос: IP, метод, путь, статус, размер
+/var/log/nginx/error.log    ⭐ ошибки: 502, 404, конфиг, upstream таймауты
+
+# Live-tail:
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+
+# Через journalctl (для перезапусков/конфига):
+sudo journalctl -u nginx -f
+sudo journalctl -u nginx --since "10 min ago"
+
+# Подсчёт ошибок 5xx за сегодня:
+sudo awk '$9 ~ /^5/' /var/log/nginx/access.log | wc -l
+
+# Топ-10 самых частых клиентов:
+sudo awk '{print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head</pre>
+      </div>
+
+      <h2 id="nginx-s10">Базовые команды управления</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Чеклист действий</span>
+        </div>
+        <pre>sudo nginx -t                          # ⭐ ПЕРВОЕ что делать после правки
+                                       # проверка синтаксиса, не применяет
+sudo nginx -T                          # вывести ПОЛНУЮ эффективную конфигу
+                                       # (включая все include)
+
+sudo systemctl reload nginx            # ⭐ перечитать конфиг БЕЗ обрыва коннектов
+sudo systemctl restart nginx           # полный stop+start (рвёт коннекты)
+sudo systemctl status nginx
+sudo systemctl enable nginx            # автозапуск при boot
+
+# Принудительно отправить SIGHUP мастеру (то же что reload):
+sudo nginx -s reload
+sudo nginx -s stop                     # быстрый стоп
+sudo nginx -s quit                     # graceful — дать доработать запросам</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> nginx — мастер + воркеры, по одному на ядро. Конфиг в <code>/etc/nginx/nginx.conf</code>, свои файлы — в <code>conf.d/</code>. Структура: <code>http → server → location</code>. <strong>«Welcome to nginx»</strong> — это <code>/usr/share/nginx/html/index.html</code>. server выбирается по <code>Host:</code>, location — по правилам приоритета (точное → префикс с ^~ → регулярки → обычный префикс). <code>proxy_pass</code> со слэшем подменяет префикс, без слэша — оставляет путь как есть. Бэкенду нужны заголовки <code>X-Real-IP</code>, <code>X-Forwarded-Proto</code>, <code>Host</code>. <strong>На Fedora — обязательно <code>setsebool -P httpd_can_network_connect on</code></strong>, иначе 502 при правильном конфиге. Балансировка через <code>upstream</code> с алгоритмами round-robin/ip_hash/least_conn. HTTPS — <code>certbot --nginx</code> делает всё сам. Перед <code>reload</code> — всегда <code>nginx -t</code>.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

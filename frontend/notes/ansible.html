@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — Ansible — автоматизация конфигурации</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="ansible">
+      <h1>Ansible — автоматизация конфигурации</h1>
+      <p>Ansible — инструмент для автоматического управления настройками серверов. Вместо того чтобы вручную настраивать каждый сервер по-очереди, ты описываешь в YAML файле что должно быть установлено и настроено — Ansible сам всё сделает на всех серверах.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Представь что у тебя 50 серверов и на каждый нужно установить nginx, создать пользователя и скопировать конфиг. Вручную — это 50 раз одно и то же. С Ansible — пишешь инструкцию один раз, запускаешь — готово на всех сразу.
+      </div>
+
+      <h2 id="ansible-s0">Ключевые концепции</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Основные понятия</span>
+        </div>
+        <pre>Control node    — твой компьютер с которого запускается Ansible
+Managed nodes   — серверы которыми управляет Ansible
+Inventory       — список серверов (адреса, группы)
+Playbook        — YAML файл с инструкциями что делать
+Task            — одно конкретное действие (установить пакет, скопировать файл)
+Role            — набор tasks сгруппированных по функции (nginx, postgres)
+Module          — встроенный инструмент Ansible (apt, copy, service, template)
+
+# Ansible не требует агента на серверах!
+# Подключается по SSH — нужен только SSH доступ и Python на сервере</pre>
+      </div>
+
+      <h2 id="ansible-s1">Inventory — список серверов</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">INI</span>
+          <span>inventory/hosts</span>
+        </div>
+        <pre>[webservers]
+web1.example.com
+web2.example.com  ansible_user=ubuntu  ansible_port=2222
+
+[databases]
+db1.example.com  ansible_host=192.168.1.10
+
+[production:children]
+# группа из других групп
+webservers
+databases
+
+# [название_группы] — объединить серверы логически
+# ansible_user — под каким пользователем подключаться
+# ansible_host — IP если имя не резолвится</pre>
+      </div>
+
+      <h2 id="ansible-s2">Playbook — главный файл инструкций</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>playbook.yml — установить и запустить nginx</span>
+        </div>
+        <pre>---
+# --- обязательно в начале YAML файла
+
+- name: Настроить веб-серверы
+  # name — описание для читаемости
+
+  hosts: webservers
+  # hosts — на каких серверах выполнять (из inventory)
+
+  become: true
+  # become: true — выполнять с правами root (sudo)
+
+  tasks:
+    # tasks — список действий по порядку
+
+    - name: Установить nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: true
+      # apt — модуль для управления пакетами (Ubuntu/Debian)
+      # state: present — убедиться что установлен
+      # state: absent — убедиться что удалён
+
+    - name: Скопировать конфиг nginx
+      copy:
+        src: files/nginx.conf
+        dest: /etc/nginx/nginx.conf
+        owner: root
+        mode: '0644'
+      # copy — скопировать файл с control node на сервер
+
+    - name: Запустить и включить nginx
+      service:
+        name: nginx
+        state: started
+        enabled: true
+      # service — управление системными сервисами
+      # enabled: true — запускать автоматически при загрузке
+
+    - name: Создать пользователя deploy
+      user:
+        name: deploy
+        shell: /bin/bash
+        groups: sudo
+      # user — управление пользователями</pre>
+      </div>
+
+      <h2 id="ansible-s3">Запуск Ansible</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Основные команды</span>
+        </div>
+        <pre># Проверить подключение ко всем серверам:
+ansible all -m ping -i inventory/hosts
+# all — все серверы из inventory
+# -m ping — использовать модуль ping
+# -i — указать файл inventory
+
+# Запустить playbook:
+ansible-playbook -i inventory/hosts playbook.yml
+
+# Режим проверки (ничего не менять, только показать что будет):
+ansible-playbook -i inventory/hosts playbook.yml --check
+
+# Запустить только на конкретной группе:
+ansible-playbook -i inventory/hosts playbook.yml --limit webservers
+
+# Запустить только определённые задачи (по тегу):
+ansible-playbook -i inventory/hosts playbook.yml --tags nginx
+
+# Вывод: changed=2 — что изменилось
+#        ok=3     — что уже было в нужном состоянии
+#        failed=0 — что не получилось</pre>
+      </div>
+
+      <h2 id="ansible-s4">Идемпотентность — главный принцип</h2>
+
+      <div class="note">
+        <strong>Идемпотентность</strong> — запусти playbook 10 раз, результат всегда одинаковый. Если nginx уже установлен — Ansible не будет устанавливать снова. Это безопасно: можно запускать повторно без риска сломать то что работает. <code>state: present</code> означает "убедись что есть", а не "установи заново".
+      </div>
+
+      <div class="error-block">
+        <div class="title">UNREACHABLE — не может подключиться к серверу</div>
+        <pre>UNREACHABLE! => {"msg": "Failed to connect to the host via ssh"}</pre>
+        <p>Причина: неверный IP, закрытый порт SSH, неверный ключ, или сервер выключен.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Диагностика</div>
+        <pre>ssh ubuntu@192.168.1.10               # проверить SSH вручную
+ansible all -m ping -vvv -i hosts     # подробный вывод (-vvv)
+# в inventory проверить ansible_user, ansible_port, ansible_host</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Changed: 0 но ошибки нет — ничего не применилось</div>
+        <p>Причина: задача уже в нужном состоянии (идемпотентность). Это нормально — Ansible не меняет то что уже правильно.</p>
+      </div>
+
+      <h2 id="ansible-s5">Puppet — тот же конфиг-менеджмент, но с агентами</h2>
+      <p>Второй по популярности инструмент управления конфигурацией (в энтерпрайзе и банках — часто первый). Решает ту же задачу, что Ansible — «приведи 100 серверов к описанному состоянию», — но противоположным способом.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Push vs Pull — главное различие с Ansible</span>
+        </div>
+        <pre>Ansible = PUSH: ты запускаешь playbook со своей машины, он идёт по SSH
+          на серверы и приводит их в порядок. Агентов нет. Разовый визит.
+
+Puppet  = PULL: на каждом сервере живёт АГЕНТ (демон puppet), который сам
+          раз в 30 минут ходит к Puppet-серверу: «какой я должен быть?» —
+          получает каталог и приводит себя в порядок.
+
+Следствия pull-модели:
++ самолечение: руками поменял конфиг на сервере → через 30 минут агент
+  вернул как в манифесте (дрейф конфигурации невозможен в принципе)
++ масштаб: 10 000 серверов сами себя обслуживают, никто их не обходит
+- нужен агент на каждой машине и центральный сервер (сложнее вход)
+- изменения не мгновенные (жди цикла агента или пинай вручную)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONFIG</span>
+          <span>Манифест .pp — декларативный DSL</span>
+        </div>
+        <pre># Puppet описывает СОСТОЯНИЕ (что должно быть), а не шаги (что сделать):
+package { 'nginx':
+  ensure => installed,
+}
+service { 'nginx':
+  ensure  => running,
+  enable  => true,
+  require => Package['nginx'],   # зависимость: сначала пакет, потом сервис
+}
+file { '/etc/nginx/nginx.conf':
+  source => 'puppet:///modules/nginx/nginx.conf',
+  notify => Service['nginx'],    # файл поменялся → перезапустить сервис
+}
+
+# Идемпотентность та же, что у Ansible: 10 запусков = один результат.
+# facter — сборщик фактов о машине (ОС, IP, память), аналог ansible facts.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Формула для собеса:</strong> Ansible — agentless push по SSH, просто начать, хорош для оркестрации и разовых раскаток. Puppet — агентный pull с центральным сервером, хорош там, где тысячи машин должны <em>постоянно</em> сами держать себя в заданном состоянии. Не «кто лучше», а разные модели доставки одного и того же.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

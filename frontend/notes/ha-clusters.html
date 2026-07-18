@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — Отказоустойчивые кластеры</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="ha-clusters">
+      <h1>Отказоустойчивые кластеры</h1>
+      <p>Отказоустойчивость (High Availability, HA) — система продолжает работать даже если один из серверов упал. Достигается за счёт дублирования: нет ни одной точки отказа.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Один мост через реку — он упал, движение остановилось. Три моста через реку — один закрыт на ремонт, машины едут по двум другим. HA-кластер работает как три моста: один упал — остальные берут его нагрузку.
+      </div>
+
+      <h2 id="ha-clusters-s0">Ключевые понятия</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Словарь HA</span>
+        </div>
+        <pre>SPoF (Single Point of Failure)
+— единственная точка отказа. HA = устранить все SPoF.
+
+Replication (репликация)
+— копирование данных в реальном времени на несколько серверов.
+— Master → Slave. Пишем в Master, читаем с Slave.
+
+Failover (переключение при сбое)
+— автоматическое переключение на резервный сервер при падении основного.
+
+Quorum (кворум)
+— минимальное количество узлов для принятия решений.
+— Нечётное количество узлов: 3 или 5. При 2 кластер может "застыть".
+
+Load Balancer (балансировщик нагрузки)
+— распределяет запросы между несколькими серверами.
+— Пользователь всегда идёт в одну точку (VIP-адрес), не знает сколько серверов за ней.
+
+VIP (Virtual IP)
+— плавающий IP адрес. При падении одного сервера переходит на другой.
+— Пользователи и приложения всегда используют VIP, не знают о переключении.
+
+RTO (Recovery Time Objective) — максимальное время восстановления
+RPO (Recovery Point Objective) — максимальная потеря данных</pre>
+      </div>
+
+      <h2 id="ha-clusters-s1">Инструменты для HA</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Популярные инструменты HA</span>
+        </div>
+        <pre>HAProxy          — балансировщик нагрузки для TCP/HTTP
+                 — распределяет запросы, проверяет здоровье серверов
+                 — порт: 80/443 для входящих, 8080 статистика
+
+Keepalived       — управляет плавающим VIP адресом
+                 — если основной сервер упал → VIP переходит на резервный
+                 — работает через VRRP протокол
+
+Pacemaker +      — кластер ресурсов (сложные конфигурации)
+Corosync         — управляют любыми ресурсами: VIP, сервисы, диски
+                 — используется в PostgreSQL кластерах
+
+Patroni          — HA для PostgreSQL
+                 — автоматический failover мастера
+                 — интегрируется с etcd/consul/ZooKeeper для хранения состояния
+
+Kubernetes       — оркестратор контейнеров
+                 — встроенная HA: при падении пода запускает новый
+                 — несколько replica для каждого сервиса</pre>
+      </div>
+
+      <h2 id="ha-clusters-s2">HAProxy — пример конфигурации</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>/etc/haproxy/haproxy.cfg</span>
+        </div>
+        <pre>global
+    daemon                    # запускать как демон
+
+defaults
+    mode http                 # режим HTTP (или tcp для баз данных)
+    timeout connect 5s
+    timeout client  30s
+    timeout server  30s
+
+frontend web_front
+    # frontend — точка входа (принимает запросы)
+    bind *:80                 # слушать на порту 80
+    default_backend web_back  # передавать в этот backend
+
+backend web_back
+    # backend — список серверов куда распределять запросы
+    balance roundrobin        # алгоритм: по кругу
+    # balance leastconn       # или: наименее загруженному
+
+    option httpchk GET /health
+    # httpchk — проверять здоровье: GET /health каждые N секунд
+    # если сервер отвечает не 200 — исключается из балансировки
+
+    server web1 192.168.1.11:8000 check
+    server web2 192.168.1.12:8000 check
+    server web3 192.168.1.13:8000 check backup
+    # check — включить проверку здоровья
+    # backup — использовать только если все основные упали
+
+listen stats
+    bind *:8080
+    stats enable
+    stats uri /stats          # http://haproxy:8080/stats — дашборд</pre>
+      </div>
+
+      <h2 id="ha-clusters-s3">HA PostgreSQL с Patroni</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Архитектура Patroni кластера</span>
+        </div>
+        <pre># Минимальная конфигурация: 3 узла
+#
+# [etcd]  — хранит состояние кластера (кто лидер)
+#    ↓
+# [Patroni] на каждом узле — управляет PostgreSQL
+#    ↓
+# [PostgreSQL] — сама база данных
+#
+# Схема:
+# node1 (Master) ← пишем сюда
+#    ↓ репликация
+# node2 (Replica) ← читаем отсюда
+#    ↓ репликация
+# node3 (Replica) ← читаем отсюда
+#
+# Если node1 упал:
+# Patroni + etcd выбирают нового лидера (node2 или node3)
+# Failover занимает ~30 секунд
+
+# Проверить статус кластера:
+patronictl -c /etc/patroni.yml list
+# NAME     HOST           ROLE     STATE   TL  LAG IN MB
+# node1    192.168.1.11   Leader   running  1
+# node2    192.168.1.12   Replica  running  1   0
+# node3    192.168.1.13   Replica  running  1   0</pre>
+      </div>
+
+      <h2 id="ha-clusters-s4">Администрирование HA кластера</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Повседневные задачи администратора</span>
+        </div>
+        <pre># Плановое обслуживание — вывести узел без остановки сервиса:
+patronictl switchover   # переключить лидера на другой узел
+# или в HAProxy пометить сервер как maintenance:
+echo "disable server web_back/web1" | socat stdio /var/run/haproxy/admin.sock
+
+# Мониторинг репликации PostgreSQL:
+psql -c "SELECT * FROM pg_stat_replication;"
+# lag — отставание реплики от мастера в байтах
+
+# Проверить кворум etcd:
+etcdctl endpoint health
+etcdctl member list
+
+# Симуляция сбоя (для тестирования):
+systemctl stop patroni   # остановить на одном узле
+# кластер должен автоматически выбрать нового лидера
+
+# Логи переключения:
+journalctl -u patroni -n 100 --no-pager | grep -E "promoted|demoted|failover"</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Split-brain — два сервера думают что они лидеры</div>
+        <p>Причина: потеря связи между узлами. Оба считают себя мастером и принимают записи — данные расходятся.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — нечётное число узлов и кворум</div>
+        <pre># Минимум 3 узла — при потере 1 оставшиеся 2 составляют кворум
+# и могут решить кто лидер. При 2 узлах — кворума нет.
+
+# etcd/consul/ZooKeeper хранят "замок лидера":
+# только тот кто держит замок — лидер.
+# Если связь потеряна — замок истекает, другой узел берёт его.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> HA не защищает от всего. Она защищает от падения одного узла. Бэкапы — это другое: они защищают от потери данных (удалили таблицу, вирус, ошибка приложения). HA + регулярные бэкапы = надёжная система.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

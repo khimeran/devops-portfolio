@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — Prometheus + Grafana — мониторинг</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="prometheus-grafana">
+      <h1>Prometheus + Grafana — мониторинг</h1>
+      <p>Prometheus собирает и хранит метрики. Grafana читает их из Prometheus и рисует графики. Вместе — полноценная система мониторинга для любого приложения.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> Prometheus — это бортовой компьютер машины: постоянно записывает скорость, обороты, температуру. Grafana — это приборная панель: берёт эти данные и показывает красивыми стрелками и графиками.
+      </div>
+
+      <h2 id="prometheus-grafana-s0">Как работает scraping</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Цикл сбора метрик</span>
+        </div>
+        <pre>каждые 15 секунд Prometheus делает:
+GET http://backend:8000/metrics
+
+приложение отвечает в формате:
+http_requests_total{endpoint="/topics",method="GET",status="200"} 42.0
+http_request_duration_seconds_sum{endpoint="/topics"} 0.123
+process_memory_bytes 54738944
+
+Prometheus сохраняет эти числа с меткой времени.
+Grafana читает из Prometheus и рисует график по времени.</pre>
+      </div>
+
+      <h2 id="prometheus-grafana-s1">prometheus.yml — конфигурация</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>monitoring/prometheus.yml</span>
+        </div>
+        <pre>global:
+  scrape_interval: 15s
+  # каждые 15 секунд опрашивать все targets
+
+scrape_configs:
+  - job_name: 'backend'
+    # job_name — название группы, видно в интерфейсе Prometheus
+
+    static_configs:
+      - targets: ['backend:8000']
+        # targets — адреса откуда брать метрики
+        # backend — имя сервиса из docker-compose, Docker резолвит в IP</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>docker-compose.yml — подключить конфиг</span>
+        </div>
+        <pre>prometheus:
+  image: prom/prometheus
+  ports:
+    - "9090:9090"
+  volumes:
+    - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:z
+    # монтируем наш файл внутрь контейнера
+    # /etc/prometheus/prometheus.yml — путь который Prometheus читает при старте
+    # :z — разрешение SELinux (нужно на Fedora)</pre>
+      </div>
+
+      <h2 id="prometheus-grafana-s2">Метрики в FastAPI — prometheus-client</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PYTHON</span>
+          <span>backend/app/main.py — добавить метрики</span>
+        </div>
+        <pre>import time
+from fastapi import Request
+from prometheus_client import Counter, Histogram, make_asgi_app
+
+# Counter — счётчик, только растёт (количество запросов)
+REQUEST_COUNT = Counter(
+    'http_requests_total',           # название метрики в Prometheus
+    'Total number of HTTP requests', # описание
+    ['method', 'endpoint', 'status'] # labels — разрезы данных
+)
+
+# Histogram — гистограмма (распределение времени ответа)
+REQUEST_LATENCY = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request latency in seconds',
+    ['endpoint']
+)
+
+# /metrics — эндпоинт куда заходит Prometheus
+app.mount("/metrics", make_asgi_app())
+
+# Middleware — перехватчик всех запросов
+@app.middleware("http")
+async def track_requests(request: Request, call_next):
+    start = time.time()                  # время начала
+    response = await call_next(request)  # выполнить запрос
+    duration = time.time() - start       # сколько заняло
+
+    if request.url.path != "/metrics":   # сами метрики не считаем
+        REQUEST_COUNT.labels(
+            method=request.method,
+            endpoint=request.url.path,
+            status=response.status_code
+        ).inc()                          # +1 к счётчику
+        REQUEST_LATENCY.labels(
+            endpoint=request.url.path
+        ).observe(duration)              # записать время в гистограмму
+
+    return response</pre>
+      </div>
+
+      <h2 id="prometheus-grafana-s3">PromQL — язык запросов Prometheus</h2>
+      <p>PromQL — специальный язык для запросов к метрикам. Пишется в Prometheus UI или в Grafana в режиме Code.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PROMQL</span>
+          <span>Основные запросы</span>
+        </div>
+        <pre>http_requests_total
+# просто показать все значения метрики
+
+sum(http_requests_total) by (endpoint)
+# сложить по группам: отдельно /topics, отдельно /metrics/
+
+rate(http_requests_total[1m])
+# скорость роста за последнюю минуту (запросов в секунду)
+
+increase(http_requests_total[5m])
+# прирост за последние 5 минут (сколько запросов пришло)
+
+histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, endpoint))
+# 95-й перцентиль времени ответа за 5 минут
+# 95% запросов выполнились быстрее чем это значение</pre>
+      </div>
+
+      <div class="note">
+        <strong>Перцентиль p95:</strong> Если p95 = 0.3 секунды — значит 95% запросов ответили быстрее чем за 0.3с. Оставшиеся 5% — медленнее. Это стандартная метрика производительности в продакшн системах. Среднее (average) врёт — один медленный запрос портит картину. Перцентиль честнее.
+      </div>
+
+      <h2 id="prometheus-grafana-s4">Grafana — настройка дашборда</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Порядок настройки</span>
+        </div>
+        <pre>1. Открыть http://localhost:3030
+   логин: admin / пароль: admin
+
+2. Connections → Data sources → Add data source → Prometheus
+   URL: http://prometheus:9090
+   # prometheus — имя сервиса из docker-compose, не localhost!
+   Save & test → зелёная надпись = успех
+
+3. + → New dashboard → Add visualization
+   Выбрать Prometheus как источник
+
+4. В редакторе панели переключиться в режим Code
+   # Builder — визуальный, ограниченный
+   # Code — пишешь PromQL напрямую, работает всё
+
+5. Ввести запрос → Run queries → Apply → Ctrl+S</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">График пустой — нет данных</div>
+        <p>Причины: неправильный режим (Builder вместо Code), слишком маленький временной диапазон, или контейнер только запустился и данных мало.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение</div>
+        <pre># 1. Переключиться в Code режим
+# 2. Поставить диапазон Last 1 hour (правый верхний угол)
+# 3. Нагенерить трафик:
+for i in {1..50}; do curl -s http://localhost:8000/topics > /dev/null; sleep 0.3; done</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Prometheus не подключается к backend</div>
+        <pre>URL: http://localhost:9090 — НЕ РАБОТАЕТ в Grafana внутри Docker</pre>
+        <p>Причина: localhost внутри контейнера — это сам контейнер, не хост-машина.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Решение — использовать имя сервиса</div>
+        <pre>URL: http://prometheus:9090
+# prometheus — имя сервиса из docker-compose
+# Docker сам знает его IP внутри сети</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> внутри Docker-сети сервисы обращаются друг к другу по имени из docker-compose, не по localhost. localhost — это всегда "я сам". Grafana → Prometheus = <code>http://prometheus:9090</code>, не <code>http://localhost:9090</code>.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

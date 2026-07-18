@@ -1,0 +1,2727 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — 🐧 Linux</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="linux-fs">
+      <h1>🐧 Linux</h1>
+      <p>Большой блок про устройство Linux. Делится на три темы: <strong>бинарники и ссылки</strong> (что запускается и как программы находят библиотеки), <strong>навигация по файловой системе</strong> (где что лежит, как монтируются диски, откуда брать метрики) и <strong>права в Linux</strong> (как файлы защищены, что такое <code>chmod</code>/<code>chown</code>/<code>umask</code>, спецбиты, SELinux и Docker-капкан).</p>
+
+      <!-- ============ ТЕМА 1 ============ -->
+      <h2 id="linux-fs-s0">Бинарники и ссылки</h2>
+      <p>Из чего состоит исполняемый файл, как ядро его запускает, чем симлинк отличается от hard link и как читать вывод <code>ls -l</code>.</p>
+
+      <h3>Системные папки и <code>/usr</code> merge</h3>
+      <p>В Linux всё разложено по назначению. Бинарники — в <code>bin</code>-папках, библиотеки — в <code>lib</code>-папках.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FS</span>
+          <span>Где лежат программы и библиотеки</span>
+        </div>
+        <pre>/bin    → команды для всех юзеров (ls, cat, cp, grep)
+/sbin   → админские команды (mount, fdisk, mkfs, reboot)
+          s = system, НЕ super
+/lib    → 32-битные общие библиотеки (.so файлы)
+/lib64  → 64-битные общие библиотеки
+/usr/bin, /usr/sbin, /usr/lib64 → то же самое, основное место
+
+# где шелл ищет команды — переменная PATH:
+echo $PATH
+# /usr/local/bin:/usr/bin:/usr/sbin:/home/kirill/.local/bin ...
+# слева направо: какая папка раньше — та команда и выигрывает
+
+which ls        # покажет полный путь найденной команды
+type ls         # команда / алиас / встроенная в шелл / функция</pre>
+      </div>
+
+      <div class="note">
+        <strong>/usr merge:</strong> на современной Fedora <code>/bin</code>, <code>/sbin</code>, <code>/lib</code>, <code>/lib64</code> — это симлинки на <code>/usr/bin</code>, <code>/usr/sbin</code>, <code>/usr/lib</code>, <code>/usr/lib64</code>. Раньше папки были отдельными (на маленьких дисках <code>/usr</code> монтировался позже корня), сейчас всё унифицировано в <code>/usr</code>. Проверить: <code>readlink -f /bin</code> → <code>/usr/bin</code>.
+      </div>
+
+      <h3>ELF — формат бинарников</h3>
+      <p>Каждый исполняемый файл — это ELF (Executable and Linkable Format), аналог <code>.exe</code> в Windows. Внутри: заголовок + машинный код + список нужных <code>.so</code> библиотек. Опознаётся по первым 4 байтам: <code>0x7F 'E' 'L' 'F'</code> («магическое число»).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Заглянуть внутрь бинарника</span>
+        </div>
+        <pre>file /usr/bin/ls
+# ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV),
+# dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2,
+# BuildID[sha1]=..., for GNU/Linux 3.2.0, stripped
+
+hexdump -C /usr/bin/ls | head -1
+# 00000000  7f 45 4c 46 02 01 01 00  ...  |.ELF............|
+#           └ те самые магические байты 7f 'E' 'L' 'F'</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>Что означает каждое поле вывода file</span>
+        </div>
+        <pre>ELF 64-bit       — формат + битность (64-битные адреса)
+LSB              — little-endian (порядок байт, как у всех x86)
+pie executable   — Position Independent Executable:
+                   можно грузить в любой адрес памяти.
+                   Нужно для ASLR — защиты от эксплойтов
+                   (адреса в памяти случайны при каждом запуске)
+x86-64           — архитектура процессора (Intel/AMD 64-bit;
+                   у ARM было бы aarch64)
+SYSV             — System V ABI, стандарт общения с ядром
+dynamically linked  — программа ЗОВЁТ .so из системы,
+                      а не носит код в себе
+interpreter /lib64/ld-linux-x86-64.so.2
+                 — динамический линкер, стартует ПЕРВЫМ
+BuildID          — уникальный хэш сборки (для debug/core dumps)
+stripped         — без отладочных символов (имён функций) —
+                   меньше размер, так делают для прода</pre>
+      </div>
+
+      <h3>Dynamic vs static linking</h3>
+      <p>Динамическая линковка — программа использует общие <code>.so</code> библиотеки из системы. Статическая — весь код «вшит» в бинарник, он самодостаточен (так собирают Go-программы, <code>busybox</code>).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Как запускается dynamically linked ls</span>
+        </div>
+        <pre>1. Ядро видит ELF + interpreter в заголовке
+2. Запускает ld-linux-x86-64.so.2 (динамический линкер) ПЕРВЫМ
+3. Линкер читает список зависимостей из ELF
+4. Находит .so файлы в /lib64, /usr/lib64
+5. Подгружает их в память, подставляет адреса функций
+6. И только ТОГДА стартует main() твоей программы</pre>
+      </div>
+
+      <div class="note">
+        <strong>Dynamic (по умолчанию):</strong>
+        <br>+ <code>ls</code> весит ~140 КБ вместо ~2 МБ — не носит код стандартных функций в себе
+        <br>+ Обновили <code>libc</code> один раз — все программы стали безопаснее, пересобирать не надо
+        <br>− Если удалить <code>libc.so.6</code> — НИЧЕГО не запустится, даже <code>ls</code>. Восстановить только с live-USB.
+        <br><br><strong>Static (Go, busybox, scratch-образы Docker):</strong>
+        <br>+ Один файл, ни от чего не зависит — кинул на любой сервер и работает
+        <br>− Большой размер, обновление libc не подхватывается автоматически
+      </div>
+
+      <h3>Команда <code>ldd</code> — зависимости бинарника</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Список .so библиотек</span>
+        </div>
+        <pre>ldd /usr/bin/ls
+# формат строки:  имя.so => /реальный/путь (адрес_в_памяти)
+
+libc.so.6           # стандартная C (printf, malloc, open) — главная
+libpthread.so.0     # многопоточность
+libdl.so.2          # динамическая подгрузка .so на лету
+librt.so.1          # POSIX real-time (таймеры, async I/O)
+libpcre2-8.so.0     # регулярные выражения
+libselinux.so.1     # поддержка SELinux
+
+# особые строки без "=>":
+linux-vdso.so.1     # ВИРТУАЛЬНАЯ библиотека: её нет на диске,
+                    # ядро впрыскивает в каждый процесс, чтобы
+                    # ускорить частые вызовы (gettimeofday и т.п.)
+/lib64/ld-linux-x86-64.so.2  # сам динамический линкер
+
+# где линкер вообще ищет библиотеки:
+ldconfig -p | head        # кэш всех известных .so в системе
+cat /etc/ld.so.conf.d/*   # доп. пути для поиска библиотек</pre>
+      </div>
+
+      <h3><code>LD_PRELOAD</code> — впрыснуть свою библиотеку</h3>
+      <p>Переменная окружения. Если выставлена — динамический линкер подгрузит указанную <code>.so</code> ПЕРВОЙ, и её функции перекроют системные.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Проверить и найти, где задаётся</span>
+        </div>
+        <pre>echo $LD_PRELOAD                 # переменная текущего юзера
+cat /etc/ld.so.preload           # системный preload (для ВСЕХ)
+sudo grep -r "LD_PRELOAD" /etc   # широкий поиск, где задаётся
+
+# может выставляться в:
+# ~/.bashrc, ~/.bash_profile     — на уровне юзера
+# /etc/profile, /etc/profile.d/  — система, всем юзерам
+# /etc/ld.so.preload             — глобально, для ВСЕХ программ
+# /etc/xdg/<DE>/env/             — графическая сессия (KDE/GNOME)</pre>
+      </div>
+
+      <div class="note">
+        <strong>Зачем нужен LD_PRELOAD:</strong>
+        <br>✅ Дебаг и профилирование (Valgrind, AddressSanitizer подменяют malloc)
+        <br>✅ Перехват вызовов (NoMachine так перехватывает графику — на этой машине он впрыснут через KDE-сессию)
+        <br>🔥 Атаки: подсунуть вредоносный <code>.so</code>. Поэтому SUID-программы (<code>passwd</code>, <code>sudo</code>) <strong>игнорируют</strong> <code>LD_PRELOAD</code> — защита от эскалации прав.
+      </div>
+
+      <h3>Симлинки и hard links</h3>
+      <p>Два способа сослаться на файл. Симлинк — отдельный файл-указатель с путём внутри. Hard link — ещё одно имя того же физического файла (inode).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SYMLINK</span>
+          <span>Символическая ссылка (мягкая)</span>
+        </div>
+        <pre># маленький файл, внутри которого записан ПУТЬ (текстом)
+# в ls -la: первая буква l, есть стрелка ->
+# может указывать на директорию
+# может пересекать файловые системы
+# если цель удалить/переименовать — симлинк ломается (dangling)
+
+ln -s /usr/bin/python3 /tmp/py     # создать (-s = symbolic)
+readlink -f /tmp/py                # куда указывает (до конца цепочки)
+ls -la /tmp/py                     # увидеть стрелку ->
+
+# пример из системы:
+# lrwxrwxrwx 1 root root 7 янв 16 /bin -> usr/bin
+#                        └ размер 7 = длина строки "usr/bin"</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HARD LINK</span>
+          <span>Жёсткая ссылка</span>
+        </div>
+        <pre># второе ИМЯ того же inode (один физический файл — два имени)
+# в ls -la выглядит как обычный файл (счётчик ссылок > 1)
+# ТОЛЬКО на файлы, НЕ на директории
+# ТОЛЬКО внутри одной файловой системы (inode привязан к ФС)
+# удалили "оригинал" — файл жив, доступен по второму имени
+
+ln /path/file /path/hardlink       # создать (без -s)
+ls -li file hardlink               # одинаковый номер inode слева
+stat file                          # Links: 2 — счётчик имён</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> симлинк — указатель с путём, может «протухнуть». Hard link — второе имя того же inode, неуязвим к удалению оригинала. Симлинк на собеседованиях спрашивают часто.
+      </div>
+
+      <h3>Как читать <code>ls -la</code></h3>
+      <p>Строка вывода <code>ls -l</code> состоит из полей. Разберём на примере симлинка <code>/bin</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>lrwxrwxrwx. 1 root root 7 янв 16 /bin -> usr/bin</span>
+        </div>
+        <pre>l           тип файла (см. таблицу ниже)
+rwxrwxrwx   права: владелец | группа | остальные (r/w/x)
+.           есть SELinux-контекст (на Ubuntu точки нет)
+1           счётчик жёстких ссылок на этот inode
+root        владелец (юзер)
+root        группа-владелец
+7           размер в байтах
+янв 16      дата последнего изменения (mtime)
+/bin        имя
+-> usr/bin  куда указывает (только у симлинков)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МАРКЕРЫ</span>
+          <span>Первая буква = тип файла</span>
+        </div>
+        <pre>-   обычный файл
+d   директория
+l   симлинк (символическая ссылка)
+c   character device  (/dev/null, /dev/tty)
+b   block device      (/dev/sda, /dev/nvme0n1)
+p   named pipe (FIFO)
+s   unix socket       (/var/run/docker.sock)</pre>
+      </div>
+
+      <h3>Шпаргалка: разбор файлов</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Команды этой темы</span>
+        </div>
+        <pre>file &lt;путь&gt;          # тип файла по содержимому (не по расширению)
+ldd &lt;бинарник&gt;       # список .so зависимостей
+ldconfig -p         # кэш всех библиотек системы
+readlink -f &lt;путь&gt;   # куда указывает симлинк (вся цепочка)
+which &lt;cmd&gt;          # полный путь команды из PATH
+type &lt;cmd&gt;           # команда / алиас / встроенная / функция
+ls -la &lt;путь&gt;        # длинный формат + скрытые файлы
+ls -li &lt;путь&gt;        # + номер inode (для hard links)
+stat &lt;путь&gt;          # inode, права, размер, времена, счётчик ссылок
+ln -s target link    # создать симлинк
+ln target hardlink   # создать hard link</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> бинарник = ELF, который зовёт код из общих <code>.so</code>. Линкер <code>ld-linux</code> стартует первым и подгружает зависимости. <code>LD_PRELOAD</code> впрыскивает свою библиотеку (SUID её игнорирует). Симлинк — указатель, hard link — второе имя inode. Тип файла видно по первой букве <code>ls -l</code>.
+      </div>
+
+      <!-- ============ ТЕМА 2 ============ -->
+      <h2 id="linux-fs-s1">Навигация по файловой системе</h2>
+      <p>Где что лежит в корне, как читать конфиги системы, как монтируются диски и откуда берутся метрики для мониторинга.</p>
+
+      <h3>Карта корневой ФС</h3>
+      <p>В Linux папки сгруппированы <strong>по назначению</strong>, а не по приложениям (как <code>C:\Program Files\App\</code> в Windows).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FS</span>
+          <span>Что где лежит в /</span>
+        </div>
+        <pre>/etc    → конфиги системы и сервисов (текстовые файлы)
+/var    → изменяемые данные программ:
+            /var/log    — логи (сюда смотрят, когда упало)
+            /var/lib    — данные сервисов (БД, docker)
+            /var/cache  — кэши пакетов и программ
+/usr    → установленные программы и их статичные данные
+/opt    → сторонний/коммерческий софт целым каталогом
+/tmp    → временные файлы (чистятся при ребуте)
+/run    → runtime работающих сервисов (PID-файлы, сокеты)
+/home   → домашние папки обычных юзеров
+/root   → домашняя папка администратора
+/proc   → ВИРТУАЛЬНАЯ ФС: процессы и параметры ядра
+/sys    → ВИРТУАЛЬНАЯ ФС: железо и драйверы
+/dev    → файлы устройств (диски, /dev/null, терминалы)
+/boot   → ядро Linux + initramfs + загрузчик GRUB</pre>
+      </div>
+
+      <div class="note">
+        <strong>Где живёт девопс:</strong> <code>/etc</code> (настроить сервис), <code>/var/log</code> (понять, почему упало), <code>/proc</code> + <code>/sys</code> (диагностика и метрики).
+      </div>
+
+      <h3><code>/etc/os-release</code> — версия дистрибутива</h3>
+      <p>Стандартный файл на любом Linux. Скрипты читают его, чтобы понять, на чём бегут, и выбрать правильный пакетный менеджер.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Кросс-дистрибутивный скрипт</span>
+        </div>
+        <pre>cat /etc/os-release      # NAME, VERSION_ID, ID, PRETTY_NAME, SUPPORT_END...
+
+source /etc/os-release   # загрузить переменные из файла в шелл
+if [ "$ID" = "fedora" ] && [ "$VERSION_ID" -ge 40 ]; then
+  sudo dnf install ...
+elif [ "$ID" = "ubuntu" ]; then
+  sudo apt install ...
+fi
+# ID         — машиночитаемый (fedora, ubuntu, rhel) — стабилен
+# VERSION_ID — числовая версия для сравнений
+# SUPPORT_END — дата конца поддержки (важно для прода)</pre>
+      </div>
+
+      <h3><code>/etc/fstab</code> и монтирование</h3>
+      <p>Список разделов, которые ОС автоматически монтирует при старте. 6 колонок на строку.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FSTAB</span>
+          <span>Формат строки</span>
+        </div>
+        <pre>&lt;device&gt;  &lt;mountpoint&gt;  &lt;fstype&gt;  &lt;options&gt;  &lt;dump&gt;  &lt;pass&gt;
+   1            2           3         4        5       6
+
+1 device     — откуда: UUID=..., LABEL=..., /dev/sda1
+2 mountpoint — куда: /, /home, /boot
+3 fstype     — ext4, btrfs, xfs, vfat, tmpfs, nfs
+4 options    — defaults, ro, noatime, subvol=...
+5 dump       — бэкап утилитой dump (почти всегда 0)
+6 pass       — порядок fsck: 0 не проверять, 1 корень, 2 остальное
+
+# пример:
+UUID=eaa658da-... /     btrfs subvol=root,compress=zstd:1 0 0
+UUID=d6a84d64-... /boot ext4  defaults                    1 2
+
+mount             # что сейчас примонтировано
+findmnt           # то же, но деревом и читаемо</pre>
+      </div>
+
+      <div class="note">
+        <strong>Почему UUID, а не <code>/dev/sda1</code>:</strong> имена устройств (<code>sda</code>, <code>sdb</code>, <code>nvme0n1</code>) ядро назначает в порядке обнаружения железа — он НЕ гарантирован. Воткнул флешку → она стала <code>/dev/sda</code>, системный диск съехал → система не грузится. UUID записан внутри самой ФС и не меняется.
+      </div>
+
+      <h3>Диски: <code>lsblk</code>, btrfs, zram</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Карта дисков и разделов</span>
+        </div>
+        <pre>lsblk        # дерево: диски → разделы
+lsblk -f     # + тип ФС, метка, UUID, заполнение, mountpoint
+df -h        # сколько места занято по точкам монтирования
+du -sh *     # размер папок в текущем каталоге
+
+# btrfs-сабволумы: / и /home могут жить на ОДНОМ разделе
+# (один UUID, разные subvol=root и subvol=home)
+# → можно переустановить ОС, оставив /home нетронутым
+
+# zram — swap в СЖАТОМ виде прямо в RAM (Fedora по умолчанию):
+# выгруженные страницы сжимаются (zstd/lz4), ~2-3x экономии,
+# RAM в тысячи раз быстрее диска, SSD не изнашивается записями</pre>
+      </div>
+
+      <h3><code>/proc</code> и <code>/sys</code> — виртуальные ФС</h3>
+      <p>Этих файлов <strong>нет на диске</strong>. Когда читаешь файл из <code>/proc</code>, ядро генерирует ответ на лету. Принцип Unix: «всё есть файл» — спросить ядро о CPU = прочитать файл (<code>ls -la /proc/cpuinfo</code> покажет размер 0 байт).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Диагностика через /proc</span>
+        </div>
+        <pre>cat /proc/cpuinfo        # процессор: модель, ядра, flags
+cat /proc/meminfo        # память: MemTotal, MemAvailable
+cat /proc/loadavg        # средняя нагрузка за 1/5/15 минут
+cat /proc/uptime         # сколько система работает (секунды)
+nproc                    # число логических ядер (для make -j)
+
+# проверить, можно ли поднять виртуалки/KVM-ноду:
+grep -E "vmx|svm" /proc/cpuinfo
+# vmx = Intel VT-x, svm = AMD-V
+# пусто → виртуализация выключена в BIOS, KVM не запустить</pre>
+      </div>
+
+      <div class="note">
+        <strong>Связь с мониторингом:</strong> <code>node_exporter</code> (агент Prometheus из твоего проекта) читает ровно эти файлы — <code>/proc/meminfo</code>, <code>/proc/cpuinfo</code>, <code>/proc/stat</code>, <code>/proc/loadavg</code> — и отдаёт Prometheus. Графики RAM/CPU в Grafana = красиво нарисованный <code>/proc</code>.
+      </div>
+
+      <h3><code>/boot</code> и ядра</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Ядра системы</span>
+        </div>
+        <pre>uname -r          # какое ядро ЗАГРУЖЕНО сейчас
+rpm -q kernel     # какие ядра УСТАНОВЛЕНЫ (Fedora хранит 3)
+
+# при dnf update новое ядро ставится РЯДОМ со старым, не вместо.
+# зачем: если новое не загрузится — выбрать старое в меню GRUB.
+# /etc/dnf/dnf.conf → installonly_limit=3 (старые авто-удаляются)
+# поэтому /boot со временем заполняется — там копятся ядра
+
+# имя ядра: kernel-7.0.10-200.fc44.x86_64
+#                  │      │   │     └ архитектура
+#                  │      │   └ fc44 = Fedora 44
+#                  │      └ 200 = сборка Fedora
+#                  └ 7.0.10 = версия с kernel.org
+
+# новое ядро применяется ТОЛЬКО после reboot
+# (uname -r может показывать НЕ самое новое из rpm -q kernel)</pre>
+      </div>
+
+      <h3>Память: <code>free</code> vs <code>available</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>free -h — использование памяти</span>
+        </div>
+        <pre>free -h
+#         total  used  free  shared  buff/cache  available
+# Mem:    15Gi   6,5Gi 1,1Gi 1,4Gi   9,5Gi       8,8Gi
+
+# total       — всего RAM
+# used        — реально занято процессами
+# free        — совсем нетронуто
+# buff/cache  — дисковый кэш (копии файлов для скорости)
+# available   — ⭐ сколько РЕАЛЬНО доступно новым программам</pre>
+      </div>
+
+      <div class="note">
+        <strong>🪤 Ловушка:</strong> маленький <code>free</code> — это НЕ проблема. Ядро забивает свободную RAM дисковым кэшем (<code>buff/cache</code>) и мгновенно отдаёт её программам по требованию. Реальная метрика «сколько свободно» — это <code>available</code>, а не <code>free</code>. Высокий buff/cache = здоровая система (см. linuxatemyram.com).
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> папки сгруппированы по назначению; конфиги — в <code>/etc</code>, логи — в <code>/var/log</code>. <code>fstab</code> монтирует разделы по UUID (надёжнее имён устройств). <code>/proc</code> и <code>/sys</code> — виртуальные ФС, ядро отдаёт через них метрики (их и читает Prometheus). <code>available</code> — настоящая свободная память, не <code>free</code>.
+      </div>
+
+      <!-- ============ ТЕМА 3: ПРАВА ============ -->
+      <h2 id="linux-fs-s2">Права в Linux</h2>
+      <p>Третья большая тема: кто чем владеет и кто что может делать. Каждый файл и папка в Linux принадлежит <strong>одному юзеру</strong> и <strong>одной группе</strong>, и для каждого из них (плюс «всех остальных») независимо настроены три права: читать, писать, выполнять. Здесь — как читать строку прав в <code>ls -l</code>, как её менять (<code>chmod</code>, <code>chown</code>, <code>chgrp</code>), откуда берутся «дефолтные» права у новых файлов (<code>umask</code>), что такое SUID/SGID/sticky, и про два капкана Fedora: SELinux и владение от <code>root</code> у файлов из контейнера.</p>
+
+      <h3>Модель rwx × ugo</h3>
+      <p>Linux разделяет права по трём «ролям» и трём «действиям». Это и есть знаменитые девять битов.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МОДЕЛЬ</span>
+          <span>Три роли × три действия</span>
+        </div>
+        <pre>роли:                       действия:
+  u (user)  — владелец-юзер     r (read)    — читать
+  g (group) — владелец-группа   w (write)   — писать
+  o (other) — все остальные     x (execute) — выполнять / войти
+  a (all)   — u + g + o</pre>
+      </div>
+
+      <h4>Как читать строку прав из <code>ls -l</code></h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>-rwxr-xr--. 1 kirill devs 1240 ноя 26 14:02 deploy.sh</span>
+        </div>
+        <pre>-           тип файла (-, d, l, c, b, p, s)
+rwx         u: владелец  (читать + писать + выполнять)
+r-x         g: группа    (читать + выполнять)
+r--         o: остальные (только читать)
+.           SELinux-контекст (на Fedora; на Ubuntu точки нет)
+1           счётчик жёстких ссылок на инод
+kirill      владелец-юзер
+devs        владелец-группа
+1240        размер в байтах
+ноя 26      mtime — время последнего изменения
+deploy.sh   имя</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни:</strong> у каждой роли всегда <strong>ровно три слота</strong> в фиксированном порядке <code>r-w-x</code>. Чёрточка <code>-</code> — это не «нет буквы», а <strong>«право отнято»</strong>. Длина блока прав всегда 9 символов (плюс тип файла слева).
+      </div>
+
+      <h4>На файле и на папке биты значат РАЗНОЕ</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СМЫСЛ</span>
+          <span>файл vs папка — главный подвох</span>
+        </div>
+        <pre>            файл                папка
+r           прочитать байты     увидеть СПИСОК имён (ls)
+w           изменить байты      создать / удалить / переименовать файлы
+x           запустить           ВОЙТИ (cd), обратиться к файлу по имени</pre>
+      </div>
+
+      <p>Четыре типичных режима папок — <code>r</code> и <code>x</code> на папке независимы:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PRACTICE</span>
+          <span>Проверь руками на vault/ с файлом внутри</span>
+        </div>
+        <pre>r-x   листать можно, менять нельзя       — обычная публичная папка
+r--   ls видит имена, но cat падает      — почти бесполезно
+--x   ls не работает, cat по имени — да  — «папка-сейф»
+---   полностью закрыта                  — приватная
+
+chmod 711 vault                      # --x для остальных
+sudo -u nobody ls vault/             # Permission denied
+sudo -u nobody cat vault/treasure    # читает по имени — ОК
+
+chmod 744 vault                      # r-- для остальных
+sudo -u nobody ls vault/             # имена видит
+sudo -u nobody cat vault/treasure    # Permission denied (нет x)</pre>
+      </div>
+
+      <div class="note">
+        <strong>Удалить файл = «выкинуть запись из списка» в родительской папке.</strong> Право на удаление лежит у <strong>папки</strong>, а не у файла. Если у тебя <code>w</code> на папке — ты удалишь даже <strong>чужой</strong> файл, который тебе не принадлежит и который ты не можешь редактировать. От этого защищает sticky-бит (см. ниже про <code>/tmp</code>).
+      </div>
+
+      <h4>Алгоритм проверки прав в ядре</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Первое совпадение выигрывает</span>
+        </div>
+        <pre>1. Ты владелец-юзер?      ДА → берётся блок u, дальше НЕ смотрим
+2. Ты в группе-владельце?  ДА → берётся блок g, дальше НЕ смотрим
+3. Иначе                       → берётся блок o
+4. root (UID 0)                → пропускается ВСЕГДА, проверка не делается</pre>
+      </div>
+
+      <div class="note">
+        <strong>🪤 Парадокс на собесе:</strong> <code>chmod 077 file</code> даст права <code>----rwxrwx</code>. И ты, владелец, <strong>НЕ сможешь</strong> читать этот файл (<code>Permission denied</code>), хотя у группы и остальных <code>rwx</code>. Потому что владелец подпадает под первый блок — на нём проверка останавливается. Шире права у других — не помогает.
+      </div>
+
+      <h4>В Linux расширение НЕ запускает программу</h4>
+      <p>Это самый частый миф у людей с Windows-фоном. Linux <strong>не смотрит на расширение</strong>. Файл запускается, если:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">RULE</span>
+          <span>Что нужно, чтобы файл запустился</span>
+        </div>
+        <pre>1) стоит бит x                       — ядро вообще соглашается запустить
+2) первая строка — shebang (#!...)   — ядро знает, КОМУ передать содержимое
+                                       Например: #!/bin/bash, #!/usr/bin/env python3
+
+# маркер "забыл chmod +x":
+./script.sh
+# bash: ./script.sh: Отказано в доступе (Permission denied)</pre>
+      </div>
+
+      <!-- ============ ТЕМА 2: CHMOD ============ -->
+      <h3>chmod — меняем права</h3>
+      <p>У <code>chmod</code> два эквивалентных синтаксиса: <strong>символьный</strong> (<code>u+x</code>) и <strong>числовой</strong> (<code>755</code>).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Символьная запись</span>
+        </div>
+        <pre># кому:     u user, g group, o other, a all
+# оператор: +добавить, -убрать, =выставить ровно
+# что:      r/w/x  (+ позже s/t — спецбиты)
+
+chmod +x script.sh         # +x всем сразу (с учётом umask)
+chmod u+x script.sh        # x только владельцу  → rwxr--r--
+chmod g-w file             # отобрать запись у группы
+chmod o= secret.txt        # «другим — ничего» (= o-rwx)
+chmod a+r README           # дать чтение всем
+chmod u=rwx,go=rx script   # выставить ровно — самый предсказуемый вариант</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Числовая (восьмеричная) запись</span>
+        </div>
+        <pre>chmod 755 file
+# r=4, w=2, x=1, складываем для каждой роли:
+# rwx = 4+2+1 = 7
+# rw- = 4+2   = 6
+# r-x = 4+0+1 = 5
+# r-- = 4
+# --x = 1
+# --- = 0
+
+# типовые маски, которые встретишь в Dockerfile / Ansible / SSH:
+644   rw-r--r--   обычный файл (конфиг, README)
+600   rw-------   секрет (приватный ключ SSH, .env)
+755   rwxr-xr-x   исполняемый скрипт, папка
+700   rwx------   приватная папка (~/.ssh)
+777   rwxrwxrwx   🚩 КРАСНЫЙ ФЛАГ. Никогда в проде.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Рекурсивно</strong> — флаг <code>-R</code>: <code>chmod -R 755 dir/</code>. Это разовая правка дерева, <strong>не «наследование»</strong>. Новые файлы внутри будут получать права от <code>umask</code>, а не от папки. Настоящее наследование группы — только через SGID (см. ниже).
+      </div>
+
+      <!-- ============ ТЕМА 3: CHOWN ============ -->
+      <h3>chown / chgrp — меняем владельца</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>chown — поменять юзера и/или группу</span>
+        </div>
+        <pre>chown user file             # сменить юзера
+chown user:group file       # сменить и юзера, и группу
+chown :group file           # сменить только группу (= chgrp)
+chown -R user:group dir/    # рекурсивно
+
+# самый частый кейс на проде — починить владение
+# после контейнера или после переноса данных:
+sudo chown -R "$(id -u):$(id -g)" db/data
+# $(id -u) — твой UID числом
+# $(id -g) — твой GID числом
+# подстановка надёжнее имени: работает даже если в этой системе
+# твоего юзера зовут иначе (внутри контейнера, например)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>chgrp — поменять только группу</span>
+        </div>
+        <pre>chgrp devs file
+chgrp -R devs dir/
+groups                # список твоих групп
+# группу можно менять только на ту, в которой ты сам состоишь</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ Правило безопасности:</strong> поменять <strong>юзера-владельца</strong> может <strong>только root</strong>. Обычный юзер не может ни «присвоить» чужой файл, ни «отдать» свой. Иначе любой создал бы SUID-скрипт, перевёл владельца на <code>root</code> — и эскалировал привилегии. Передача владения = операция рута.
+      </div>
+
+      <div class="note">
+        <strong>Группы юзера и зачем они:</strong> <code>id</code> покажет UID/GID и группы. На Fedora важны:
+        <br>• <code>wheel</code> — членство = возможность <code>sudo</code> (на Debian/Ubuntu роль играет группа <code>sudo</code>).
+        <br>• <code>docker</code> — можешь <code>docker run</code> без <code>sudo</code>. ⚠️ <strong>Эквивалентно root</strong>: <code>docker run -v /:/host alpine</code> даёт доступ ко всей хост-ФС. На проде дают редко и осознанно.
+      </div>
+
+      <!-- ============ ТЕМА 4: UMASK ============ -->
+      <h3>umask — дефолтные права новых файлов</h3>
+      <p><code>umask</code> — это «маска вычитания». От базового «потенциала» ядро отнимает биты <code>umask</code>, и так получаются права свежесозданного файла.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FORMULA</span>
+          <span>потенциал − umask = реальные права</span>
+        </div>
+        <pre>файл:  666 − umask = реальные права   (x по умолчанию НЕ дают — опасно)
+папка: 777 − umask = реальные права
+
+# обычный юзер на Fedora: umask 022
+файл:  666 − 022 = 644  →  rw-r--r--
+папка: 777 − 022 = 755  →  rwxr-xr-x
+
+# umask 077 — только владельцу всё, остальным ничего
+файл:  666 − 077 = 600  →  rw-------
+папка: 777 − 077 = 700  →  rwx------
+
+# umask 002 — командная папка, группа может писать
+файл:  666 − 002 = 664  →  rw-rw-r--</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Проверить и поменять</span>
+        </div>
+        <pre>umask                # 0022 — первая 0 это спецбиты, дальше u/g/o
+umask -S             # символьная форма: u=rwx,g=rx,o=rx
+umask 077            # параноидальный режим
+umask 022            # вернуть как было
+
+# где umask живёт постоянно:
+~/.bashrc                       — твой персональный umask
+/etc/profile, /etc/login.defs   — системные дефолты
+UMask= в systemd-юните          — umask для конкретного демона</pre>
+      </div>
+
+      <div class="note">
+        <strong>Типовые значения в проде:</strong> <code>022</code> — десктоп; <code>027</code> — параноидальный сервер (остальные не видят); <code>002</code> — командная папка; <code>077</code> — приватные ключи и токены. Для <code>.env</code>-файла и <code>id_rsa</code> поставь <code>chmod 600</code> вручную, не надейся на umask.
+      </div>
+
+      <!-- ============ ТЕМА 5: СПЕЦБИТЫ ============ -->
+      <h3>Спецбиты: SUID, SGID, sticky</h3>
+      <p>К девяти обычным битам добавляются три «специальных» — они меняют поведение исполнения и создания файлов. В <code>ls -l</code> показаны буквой на месте <code>x</code>:</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МАРКЕРЫ</span>
+          <span>буква на месте x = спецбит</span>
+        </div>
+        <pre>позиция u (4-я)   s / S    — SUID    (запуск от ВЛАДЕЛЬЦА файла)
+позиция g (7-я)   s / S    — SGID    (на dir: новые файлы наследуют группу)
+позиция o (10-я)  t / T    — sticky  (на dir: удалить файл = только его владелец)
+
+маленькая буква = бит установлен И x тоже стоит
+большая буква   = бит установлен, но x НЕТ (обычно ошибка)</pre>
+      </div>
+
+      <h4>SUID — пример с <code>passwd</code></h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Почему обычный юзер может поменять свой пароль</span>
+        </div>
+        <pre>ls -l /usr/bin/passwd
+# -rwsr-xr-x. 1 root root 91424 ... /usr/bin/passwd
+#    ^ маленькая 's' = SUID
+
+# /etc/shadow имеет права ---------- — никому ничего.
+# Но программа passwd должна туда писать.
+# SUID-бит говорит ядру: при запуске сделать процесс
+# от имени ВЛАДЕЛЬЦА файла (root), а не запустившего (kirill).
+
+# найти ВСЕ SUID-бинарники в системе (классика собеса по безопасности):
+find /usr/bin /usr/sbin -perm -4000 -type f 2>/dev/null
+# -perm -4000 — установлен SUID; минус = «как минимум этот бит»
+# -type f     — только файлы
+# 2>/dev/null — выбросить ошибки «нет доступа»</pre>
+      </div>
+
+      <div class="note">
+        <strong>SUID-программы игнорируют <code>LD_PRELOAD</code>.</strong> Иначе атакующий подсунул бы свою <code>.so</code> и через <code>passwd</code> стал бы рутом. Это связь со старым разделом про бинарники и динамический линкер.
+      </div>
+
+      <h4>SGID на папке — единственное реальное «наследование»</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Командная папка, где файлы наследуют группу</span>
+        </div>
+        <pre>sudo mkdir /srv/teamspace
+sudo chown root:devs /srv/teamspace
+sudo chmod 2775 /srv/teamspace       # 2 спереди = SGID
+ls -ld /srv/teamspace
+# drwxrwsr-x. root devs ...
+#       ^ s — SGID стоит
+
+# теперь любой файл, созданный внутри, получит группу devs —
+# даже если у создателя основная группа другая.
+# подкаталоги тоже становятся SGID — наследование идёт вниз по дереву.</pre>
+      </div>
+
+      <h4>Sticky на <code>/tmp</code></h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Почему /tmp общая, но безопасная</span>
+        </div>
+        <pre>ls -ld /tmp
+# drwxrwxrwt. ...
+#         ^ t — sticky
+
+# rwx у всех = любой юзер может писать в /tmp.
+# Но t-бит ограничивает: УДАЛИТЬ файл может только его владелец
+# (или владелец папки, или root).
+# Без sticky любой бы пощёлкал rm -rf /tmp/* и снёс чужие сессии.</pre>
+      </div>
+
+      <h4>Числовая запись спецбитов</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CHMOD</span>
+          <span>4 = SUID, 2 = SGID, 1 = sticky</span>
+        </div>
+        <pre>chmod 4755 file    # SUID + rwxr-xr-x   (как passwd)
+chmod 2775 dir/    # SGID + rwxrwxr-x   (командная папка)
+chmod 1777 dir/    # sticky + rwxrwxrwx (как /tmp)
+chmod 6755 file    # SUID + SGID + rwxr-xr-x</pre>
+      </div>
+
+      <!-- ============ ТЕМА 6: SELINUX ============ -->
+      <h3>SELinux — MAC поверх DAC (Fedora/RHEL)</h3>
+      <p>На Fedora и RHEL над обычными правами сидит <strong>второй слой контроля</strong>. Точка в конце прав (<code>rw-r--r--<strong>.</strong></code>) — маркер, что у файла есть SELinux-контекст.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">МОДЕЛЬ</span>
+          <span>DAC vs MAC</span>
+        </div>
+        <pre>DAC — Discretionary Access Control
+       классические rwx / u / g / o, владелец сам решает кому что дать
+       проверяется ПЕРВОЙ
+
+MAC — Mandatory Access Control (SELinux)
+       политики прописаны в системе, их НЕ обходит даже root
+       проверяется ВТОРОЙ
+
+# Если DAC разрешает, но MAC запрещает — итог: запрет.
+# Если в Fedora ты root и тебя всё равно "Permission denied" —
+# почти всегда виноват SELinux.</pre>
+      </div>
+
+      <h4>Самый частый случай: Docker volume на Fedora</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Симптом и лечение</span>
+        </div>
+        <pre># симптом: внутри контейнера Permission denied при записи в bind-mount
+docker run --rm -v "$PWD/data:/data" alpine touch /data/x
+# touch: /data/x: Permission denied   ← НЕ помогает chmod 777!
+
+# причина — SELinux-контекст: твой каталог user_home_t,
+# а контейнерному домену container_t писать в user_home_t нельзя.
+
+# проверка контекста:
+ls -Zd data/
+# unconfined_u:object_r:user_home_t:s0  data/
+
+# лечение — добавить :z к volume:
+docker run --rm -v "$PWD/data:/data:z" alpine touch /data/x
+# :z — перелейблить как container_file_t, общий контекст
+# :Z — то же, но ПРИВАТНО под этот контейнер
+#      ⚠️ НЕ ставь :Z на /etc, ~/.ssh, /var — испортит систему</pre>
+      </div>
+
+      <div class="note">
+        <strong>Подсказки для отладки:</strong> временно вырубить SELinux — <code>sudo setenforce 0</code>; вернуть — <code>sudo setenforce 1</code>; посмотреть последние блокировки — <code>sudo ausearch -m AVC -ts recent</code>. На Ubuntu роль SELinux играет AppArmor — симптомы похожие, лечение другое.
+      </div>
+
+      <!-- ============ ТЕМА 7: DOCKER КАПКАН ============ -->
+      <h3>Docker-капкан: файлы от root</h3>
+      <p>Стандартный сценарий: <code>docker-compose up</code> поднял PostgreSQL, в смонтированной папке <code>./db/data</code> появились файлы. <code>ls -l</code> показывает <strong><code>root:root</code></strong> (или цифры <code>999:999</code>). <code>rm -rf db/data</code> падает с <code>Permission denied</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПОЧЕМУ</span>
+          <span>Ядру плевать на «контейнер»</span>
+        </div>
+        <pre>1. Внутри alpine по умолчанию ты root (UID 0).
+2. Docker namespaces изолируют процессы, но НЕ UID.
+   UID 0 в контейнере = UID 0 на хосте (если не настроен userns-remap).
+3. Файл, созданный процессом, получает владельцем UID этого процесса.
+4. На хосте ты видишь файлы от root:root — это и есть твой процесс UID 0.
+
+# в случае официального postgres-образа создаётся внутренний юзер
+# с UID 999 — поэтому на хосте файлы будут принадлежать "999:999"
+# (имени для этого UID на хосте нет, ls покажет цифры).</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX</span>
+          <span>Четыре способа</span>
+        </div>
+        <pre>1. chown -R после факта (костыль, но работает)
+   sudo chown -R "$(id -u):$(id -g)" db/data
+
+2. флаг --user в docker run
+   docker run --user "$(id -u):$(id -g)" -v "$PWD/data:/data:z" alpine ...
+   + просто
+   - внутри контейнера UID может не иметь имени → whoami падает
+
+3. USER в Dockerfile (правильный путь для прод-образов)
+   FROM python:3.12-slim
+   RUN useradd -u 10001 -m appuser
+   USER appuser
+   CMD ["python", "app.py"]
+
+4. Rootless Docker / Podman (современный путь)
+   Демон работает от твоего юзера, userns-remap:
+   "root внутри" = твой UID снаружи.
+   Podman на Fedora — рутлесс из коробки, капкана нет.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> 9 битов <code>rwxrwxrwx</code> делятся на u/g/o; на файле и папке смысл разный; ядро берёт ОДИН блок (u → g → o, первое совпадение); root проходит мимо проверки; SUID/SGID/sticky — спецбиты с числами 4/2/1; <code>umask</code> = маска вычитания для дефолтных прав; на Fedora поверх DAC сидит SELinux — лечится <code>:z</code> в Docker; <code>chown</code> от не-рута менять юзера-владельца не может. Эти восемь пунктов закрывают 95% вопросов по правам на собесе джуна DevOps.
+      </div>
+
+      <!-- ============ ТЕМА: ДИСКИ, ФС, RAID ============ -->
+      <h2 id="linux-fs-s3">Диски, файловые системы, RAID</h2>
+      <p>Вся работа с дисками — один и тот же конвейер: <strong>диск → разделы → (RAID) → файловая система → mount → fstab</strong>. Ниже — две пошаговые инструкции («подключить диск» и «собрать RAID 1»), по которым можно пройти не думая, и справочник — почему каждый шаг такой.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Конвейер — держать в голове целиком</span>
+        </div>
+        <pre>железка  →  разделы  →  (RAID/LVM)  →  файловая система  →  mount  →  fstab
+/dev/sdb     fdisk        mdadm           mkfs.ext4          mount     пережить ребут
+
+Аналогия: участок земли → заборы → (склеить участки) → склад со стеллажами
+→ прорубить дверь → записать в завещание, что дверь рубить после каждого ребута.
+В Linux нет «диска D:» — любой диск становится ПАПКОЙ в едином дереве.</pre>
+      </div>
+
+      <h3>Инструкция №1: подключить новый диск</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 1</span>
+          <span>Осмотреться: найти новый диск</span>
+        </div>
+        <pre>lsblk
+
+# Новый диск выглядит так: TYPE = disk, БЕЗ разделов под ним, колонка
+# MOUNTPOINTS пустая. Обычно последняя буква в списке:
+#   sdb      8:16   0   10G  0 disk          ← вот он, голый и одинокий
+#
+# Имена: sd = SCSI disk (все SATA/USB), буква = порядковый номер диска:
+# sda — первый, sdb — второй, sdc — третий... как места в журнале.
+# Цифра после буквы — номер раздела: sdb1, sdb2.
+# NVMe зовут иначе: nvme0n1, разделы через p: nvme0n1p1.
+# ВАЖНО: имена — клички, ОС раздаёт их ЗАНОВО при каждой загрузке.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 2</span>
+          <span>Разметить: создать таблицу разделов и раздел</span>
+        </div>
+        <pre>fdisk /dev/sdb          # fdisk интерактивный, дальше команды-буквы:
+  g                     # новая таблица GPT (всегда GPT; o = MBR — легаси, не надо)
+  n                     # новый раздел; Enter × 3 = «весь диск»
+  p                     # print — проверить черновик глазами
+  w                     # write — ЗАПИСАТЬ и выйти (до w всё черновик, q = сбежать)
+
+lsblk                   # проверка: появился sdb1</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 3</span>
+          <span>Прикрутить файловую систему</span>
+        </div>
+        <pre>mkfs.ext4 /dev/sdb1
+
+# Какую ФС выбирать:
+# ext4  — универсал по умолчанию: надёжна, все её знают. Не уверен — бери ext4.
+# xfs   — дефолт RHEL/AlmaLinux: любит большие файлы и БД,
+#         НО раздел нельзя уменьшить (только расти).
+# vfat  — флешки и /boot/efi (UEFI другого не читает).
+# btrfs — снапшоты и сжатие (дефолт Fedora), для новичка — избыточна.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 4</span>
+          <span>Смонтировать: прорубить дверь</span>
+        </div>
+        <pre>mkdir /data                   # точка монтирования — обычная пустая папка
+mount /dev/sdb1 /data         # навесить
+df -h /data                   # проверка: видно размер и «куда смонтировано»
+
+# Если в папке ДО монтирования лежали файлы — они спрячутся ПОД
+# смонтированной ФС и вылезут после umount. Классика: «диск полный,
+# а du не видит, кто сожрал» — файлы-призраки под точкой монтирования.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 5</span>
+          <span>Прописать в fstab — чтобы пережило ребут</span>
+        </div>
+        <pre>blkid /dev/sdb1               # узнать UUID файловой системы, скопировать
+
+# Дописать строку в /etc/fstab (6 колонок):
+#   ЧТО(UUID)     КУДА    ТИП    ОПЦИИ            dump  fsck
+UUID=94e8c4e1-... /data   ext4   defaults,nofail  0     2
+
+# UUID, а не /dev/sdb1: имя — кличка (воткнул диск — sdb стал sdc),
+#   UUID зашит в ФС навсегда.
+# nofail — «устройства нет? грузись дальше без него». БЕЗ nofail
+#   пропавший диск = emergency mode вместо загрузки.
+# dump — рудимент, всегда 0. fsck: 1 только корень, 2 — остальные, 0 — не проверять.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 6</span>
+          <span>ЗОЛОТОЕ ПРАВИЛО: проверить fstab ДО ребута</span>
+        </div>
+        <pre>systemctl daemon-reload       # systemd кэширует fstab — сбросить кэш
+umount /data
+mount -a                      # смонтируй всё из fstab = репетиция загрузки
+df -h /data                   # смонтировалось обратно? fstab исправен
+
+# Ошибка вылезет СЕЙЧАС, в тёплом шелле, а не в полночь в emergency shell.
+# Проверено на себе: опечатка default вместо defaultS — mount -a поймал за 2 сек.</pre>
+      </div>
+
+      <h3>Инструкция №2: RAID 1 (зеркало) из двух дисков</h3>
+      <p>Всё то же самое, но между «разметить» и «mkfs» вклинивается mdadm. Массив дальше ведёт себя как обычный диск — шаги 3–6 не меняются.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 1–2</span>
+          <span>Найти оба диска и разметить каждый</span>
+        </div>
+        <pre>lsblk                          # два новых одинаковых диска: sdb, sdc
+
+fdisk /dev/sdb                 # на КАЖДОМ из двух дисков:
+  g                            # GPT
+  n                            # раздел на весь диск (Enter × 3)
+  t → 29                       # тип «Linux RAID» — этикетка для людей и утилит
+  w
+fdisk /dev/sdc                 # повторить: g, n, t 29, w</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 2.5</span>
+          <span>Собрать зеркало</span>
+        </div>
+        <pre>mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sdb1 /dev/sdc1
+# --create /dev/md0     имя массива (md = multiple device)
+# --level=1             зеркало
+# --raid-devices=2      из двух устройств
+# спросит «Continue creating array?» — y
+
+cat /proc/mdstat        # статус: active raid1; resync = зеркало выравнивается, норм
+
+# mdadm записал на каждый раздел СУПЕРБЛОК — паспорт «я половинка md0».
+# По паспортам система соберёт массив после ребута САМА.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 3–5</span>
+          <span>ФС, mount, fstab — как с обычным диском</span>
+        </div>
+        <pre>mkfs.ext4 /dev/md0
+mkdir /store &amp;&amp; mount /dev/md0 /store
+blkid /dev/md0                        # UUID → в /etc/fstab:
+# UUID=...  /store  ext4  defaults,nofail  0  2
+systemctl daemon-reload &amp;&amp; umount /store &amp;&amp; mount -a   # репетиция</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ШАГ 6</span>
+          <span>Прописка массива + проверка «переживёт рестарт»</span>
+        </div>
+        <pre>mdadm --detail --scan &gt;&gt; /etc/mdadm.conf
+# Зачем, если суперблоки и так соберут массив:
+# 1) без конфига имя после ребута случайное (обычно md127) — скрипты
+#    и мониторинг, ждущие md0, сойдут с ума (fstab выживет — он по UUID);
+# 2) в конфиг пишут MAILADDR — и mdadm --monitor сам шлёт письмо, когда
+#    диск в зеркале сдох. Без этого RAID 1 деградирует МОЛЧА.
+# На RHEL/Alma после — пересобрать initramfs:
+dracut -f
+
+# Репетиция ребута руками (это и есть проверка из задания):
+umount /store &amp;&amp; mdadm --stop /dev/md0     # «выключение»
+mdadm --assemble --scan &amp;&amp; mount -a        # «загрузка»: нашёл по паспортам, собрал
+df -h /store                               # на месте — зачёт</pre>
+      </div>
+
+      <h3>Справочник: почему так</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ТЕОРИЯ</span>
+          <span>MBR vs GPT, уровни RAID, RAID ≠ бэкап</span>
+        </div>
+        <pre>MBR (1983) — максимум 4 первичных раздела, диски до 2 ТБ. Легаси.
+GPT        — 128 разделов, зеттабайты, запасная копия оглавления в конце
+             диска. UEFI требует GPT. Сегодня — всегда GPT.
+
+RAID 0  stripe   скорость ×2, сдох ЛЮБОЙ диск = сдохло всё. Надёжность ХУЖЕ
+                 одного диска. Мотоцикл без шлема.
+RAID 1  mirror   каждый байт на оба диска. Минус 50% ёмкости, смерть одного
+                 диска переживается на ходу. Запасной парашют.
+RAID 5  parity   от 3 дисков, переживает смерть одного, платишь ёмкостью одного.
+RAID 10 1+0      зеркала в полосе: быстро И надёжно, минимум 4 диска. Для БД.
+
+⚠ RAID — НЕ БЭКАП. Зеркало повторяет КАЖДУЮ запись, включая rm -rf
+(получишь две копии пустоты), шифровальщика и битую БД. Оба диска в одном
+корпусе — пожар/кража убивают вместе.
+Формула: RAID — про ДОСТУПНОСТЬ (сервис не упал при смерти диска),
+бэкап — про ВОССТАНОВИМОСТЬ (копия, отделённая во времени и пространстве).</pre>
+      </div>
+
+      <h3>Полигон из файлов — тренировка без железа</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>loop-устройства: любой файл становится «диском»</span>
+        </div>
+        <pre>truncate -s 1G disk1.img disk2.img   # sparse-файлы: место не занято, пока не пишут
+losetup -fP --show disk1.img         # файл → блочное устройство /dev/loopN
+# -f найди свободный номер, -P показывай разделы (loop0p1), --show напечатай имя
+# Дальше loop-диски неотличимы от железных: fdisk, mdadm, mkfs — всё работает.
+# Той же технологией монтируются ISO, снапы, докер-образы.
+losetup -d /dev/loop0                # отцепить (сначала umount и mdadm --stop)</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> конвейер диск → раздел → (RAID) → ФС → mount → fstab; новый диск в <code>lsblk</code> — TYPE=disk без разделов и точек монтирования; всегда GPT; ext4 — если не уверен, xfs — дефолт RHEL; в fstab — UUID и <code>nofail</code>; <code>mount -a</code> — репетиция ребута до ребута; RAID 1 = доступность, а не бэкап; суперблок соберёт массив сам, <code>mdadm.conf</code> даёт стабильное имя и почтовые алерты. Задание «2 диска → RAID 1 → /store → пережить рестарт» закрывается Инструкцией №2 от и до.
+      </div>
+
+      <!-- ============ ТЕМА 4: ПРОЦЕССЫ И SYSTEMD ============ -->
+      <h2 id="linux-fs-s4">Процессы и systemd</h2>
+      <p>Четвёртая большая тема: всё, что бежит на Linux — это процесс, а всё, чем управляет DevOps — это сервис под systemd. Здесь модель процессов (PID, PPID, fork+exec), мониторинг (<code>ps</code>, <code>top</code>, <code>htop</code>), сигналы, особенности PID 1 в Docker, и systemd целиком — юниты, <code>systemctl</code>, <code>journalctl</code>, написание своего <code>.service</code>-файла.</p>
+
+      <!-- ============ ПОДТЕМА: ПРОЦЕССЫ ============ -->
+      <h3>Процессы: что это и как смотреть</h3>
+      <p><strong>Программа</strong> — это файл на диске (ELF-бинарник). <strong>Процесс</strong> — это запущенный экземпляр программы в памяти со своим PID, состоянием, открытыми файлами, кусочком памяти. Из одного бинарника можно одновременно запустить сколько угодно процессов.</p>
+
+      <h4>PID, PPID и дерево процессов</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Каждый процесс знает своего родителя</span>
+        </div>
+        <pre>PID   — уникальный номер процесса в системе (выдаёт ядро)
+PPID  — Parent PID, PID родительского процесса
+
+# В Linux ЛЮБОЙ процесс (кроме PID 1) имеет родителя.
+# Новый процесс создаётся ТОЛЬКО через fork() от существующего.
+# PID 1 — это init-процесс (systemd на современных дистрах).
+# Все остальные — его потомки.
+
+echo "мой PID:  $$"
+ps -p $$ -o pid,ppid,user,stat,cmd</pre>
+      </div>
+
+      <h4>fork + exec — как создаются процессы</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Что делает шелл, когда ты набираешь команду</span>
+        </div>
+        <pre>1. bash делает fork() → появляется КОПИЯ bash с новым PID
+2. копия делает exec("/usr/bin/ls") → её код заменяется на код ls
+3. PID сохраняется, но теперь это процесс ls
+4. ls работает, печатает файлы
+5. ls завершается → ядро шлёт родителю SIGCHLD
+6. bash забирает статус через wait() → освобождает запись в таблице
+7. bash возвращает приглашение $
+
+# Если родитель умер РАНЬШЕ детей — детей усыновляет PID 1.
+# Если родитель не вызвал wait() для мёртвого ребёнка — остаётся ЗОМБИ
+# (запись в таблице процессов, но ресурсов не ест).</pre>
+      </div>
+
+      <h4>pstree — родословная процесса</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Цепочка предков от текущего процесса до PID 1</span>
+        </div>
+        <pre>pstree -psa $$
+# -p — показать PID
+# -s — показать предков (от $$ до PID 1)
+# -a — показать аргументы запуска
+
+# пример вывода:
+# systemd,1
+#   └─systemd,2618 --user
+#       └─code,18964
+#           └─bash,19245
+#               └─bash,61348 ← наш текущий шелл</pre>
+      </div>
+
+      <div class="note">
+        <strong>Два уровня systemd:</strong> PID 1 — <strong>системный</strong> systemd (один на машину), а <code>systemd --user</code> — <strong>пользовательский</strong> (по одному на каждого залогиненного юзера). Запомни на собес: «systemd работает на двух уровнях — system и user».
+      </div>
+
+      <h4>ps aux — снимок всех процессов</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Колонки и их значения</span>
+        </div>
+        <pre>ps aux | head -10
+
+USER  PID  %CPU  %MEM  VSZ  RSS  TTY  STAT  START  TIME  COMMAND
+                       ↑    ↑          ↑
+                       │    │          └─ состояние (см. ниже)
+                       │    └─ Resident Set Size — РЕАЛЬНАЯ RAM в KB
+                       │                          (главная метрика памяти)
+                       └─ Virtual Size — адресное пространство
+                                         (часто большое, не пугайся)
+
+# STAT-коды:
+R   running   — крутится на CPU прямо сейчас
+S   sleeping  — спит, ждёт событие (90% процессов)
+D   uninterruptible — ждёт I/O, kill -9 НЕ убьёт
+Z   zombie    — труп без вести пропавшего родителя
+T   stopped   — Ctrl+Z
+I   idle      — простаивает (kernel thread)
+
+# модификаторы:
+s   session leader
++   foreground в терминале
+<   высокий приоритет</pre>
+      </div>
+
+      <div class="note">
+        <strong>Имя процесса в [квадратных скобках]</strong> в <code>ps aux</code> означает <strong>kernel thread</strong> — поток ядра, не пользовательский процесс. У них VSZ/RSS = 0 (живут в адресном пространстве ядра), нельзя дебажить и убивать обычным <code>kill</code>. Пример: <code>[kthreadd]</code> (PID 2) — «отец всех kernel threads».
+      </div>
+
+      <h4>top и htop — живой мониторинг</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Шапка top: load average</span>
+        </div>
+        <pre>top
+# или
+htop          # нужно поставить: sudo dnf install htop
+
+# === ВЕРХНЯЯ СТРОКА ===
+top - 14:23:55 up 5 days, 6:21, 3 users, load average: 0.42, 0.55, 0.50
+                                                       ↑    ↑    ↑
+                                            за 1 мин, 5 мин, 15 мин
+
+# load average = средняя длина очереди процессов на CPU + ждущих диск
+# Сравнивай с числом ядер: nproc
+# load < ядер     → свободно
+# load = ядрам    → 100% загрузки
+# load > 2*ядер   → ⚠️ перегрузка, лагает
+
+# === CPU ===
+%Cpu(s): 3.2 us, 1.1 sy, 0.0 ni, 95.6 id, 0.1 wa, 0.0 hi, 0.0 si, 0.0 st
+         ↑       ↑                ↑       ↑                       ↑
+         user-   kernel-          idle    iowait  ⚠️             steal
+         space   space            simulator (диск)               (отняли в VM)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">KEYS</span>
+          <span>Полезные клавиши прямо в top</span>
+        </div>
+        <pre>M    сортировать по %MEM (главное при «жрёт память»)
+P    сортировать по %CPU (по умолчанию)
+1    показать все ядра отдельно
+c    короткое vs полное имя команды
+u    фильтр по юзеру (спросит имя)
+k    послать сигнал процессу (интерактивный kill)
+q    выйти
+
+# htop удобнее: F5 — дерево процессов, F9 — меню сигналов, мышь работает.</pre>
+      </div>
+
+      <!-- ============ ТЕМА 2: СИГНАЛЫ И KILL ============ -->
+      <h3>Сигналы и kill</h3>
+      <p>Сигнал — это «постучали в окошко» от ядра процессу. Процесс может зарегистрировать обработчик, или будет применено действие по умолчанию (обычно — завершение). Команда <code>kill</code> посылает сигнал, не обязательно убивает.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ТАБЛИЦА</span>
+          <span>Главные 5 сигналов на собес</span>
+        </div>
+        <pre>№   имя         действие             когда шлют
+─────────────────────────────────────────────────────────────────
+1   SIGHUP      terminate            «трубку повесили»: терминал закрыт
+                                     демоны это перехватывают и
+                                     ПЕРЕЧИТЫВАЮТ конфиг (nginx, sshd)
+2   SIGINT      terminate            Ctrl+C
+9   SIGKILL     terminate насильно   ⚠️ нельзя поймать или проигнорить
+15  SIGTERM     terminate            «остановись по-хорошему» — дефолт kill
+17  SIGCHLD     ignore               у тебя умер ребёнок, забери статус
+
+# полный список:
+kill -l</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Синтаксис kill</span>
+        </div>
+        <pre>kill PID              # = kill -15 PID = kill -TERM PID
+kill -9 PID           # = kill -KILL PID                  (насильно)
+kill -STOP PID        # заморозить
+kill -CONT PID        # разморозить
+kill -HUP PID         # перечитай конфиг
+
+# имя и номер взаимозаменяемы
+# на проде лучше именами (kill -HUP nginx) — читается понятнее
+
+# === ПО ИМЕНИ, А НЕ ПО PID ===
+pkill nginx           # послать TERM всем nginx'ам
+pkill -HUP nginx      # послать HUP всем nginx'ам
+pgrep -a python       # найти PID + cmdline всех питонов
+killall firefox       # как pkill, но на BSD/macOS делает ДРУГОЕ
+
+# === ЗОЛОТОЕ ПРАВИЛО ОСТАНОВКИ ===
+kill -TERM $PID       # вежливо
+sleep 10              # дай время сохраниться
+kill -KILL $PID 2>/dev/null   # если ещё жив — добей
+
+# Именно это делает systemd и `docker stop`.</pre>
+      </div>
+
+      <!-- ============ ТЕМА 3: PID 1 В DOCKER ============ -->
+      <h3>PID 1 в Docker — главный капкан</h3>
+      <p>Внутри контейнера первый процесс получает <strong>PID 1</strong> — как systemd в системе. И ядро относится к нему по-особому: <strong>сигналы без обработчиков просто игнорируются</strong>. Поэтому «обычное приложение как PID 1» — это бомба замедленного действия.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПРАВИЛА PID 1</span>
+          <span>То, что обычные процессы НЕ обязаны делать</span>
+        </div>
+        <pre>1. Хоронить осиротевших детей (reap zombies)
+   Если родитель умер раньше детей — дети усыновляются PID 1.
+   PID 1 ОБЯЗАН их хоронить через wait().
+
+2. Принимать SIGTERM при остановке
+   Ядро шлёт SIGTERM системе через PID 1, ждёт корректного выхода.
+
+3. ⚠️ Игнорировать сигналы без обработчика
+   Защита от случайного самоубийства init'а.
+   Это и есть КАПКАН: твой python без signal.signal(SIGTERM, ...)
+   получает SIGTERM от Docker и ПРОСТО ЕГО НЕ ВИДИТ.</pre>
+      </div>
+
+      <h4>Симптом: docker stop ждёт 10 секунд</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Что происходит при docker stop</span>
+        </div>
+        <pre>0.0 s   docker stop → SIGTERM процессу PID 1 контейнера
+0.0 s   ядро видит: обработчика нет → сигнал ПРОИГНОРИРОВАН
+0-10 s  Docker daemon ждёт «вежливый» grace period (по умолчанию 10s)
+10.0 s  терпение кончилось → SIGKILL (-9)
+10.0 s  ядро убивает БЕЗ предупреждения, ничего не сохраняется
+
+# На проде это = недописанные транзакции, висячие коннекты, обрезанные логи.</pre>
+      </div>
+
+      <h4>Три способа лечения</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX 1</span>
+          <span>docker run --init — самый ленивый</span>
+        </div>
+        <pre>docker run --init -v $PWD:/app python:3.12-slim python app.py
+# или в docker-compose.yml:
+#   services:
+#     backend:
+#       init: true
+
+# Docker вставит крошечный tini (~20 КБ) как PID 1,
+# твоё приложение получит PID 2.
+# tini умеет: reap zombies + forward сигналы детям.
+# docker stop → 0.2 секунды вместо 10.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX 2</span>
+          <span>Signal handler в приложении (production way)</span>
+        </div>
+        <pre>import signal
+import sys
+
+def shutdown(signum, frame):
+    print(f"got signal {signum}, shutting down nicely", flush=True)
+    # тут закрыть БД-коннекты, сбросить буферы и т.д.
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
+
+# теперь docker stop → ~0.2 секунды + аккуратное завершение</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FIX 3</span>
+          <span>Exec form vs Shell form в Dockerfile</span>
+        </div>
+        <pre># ❌ SHELL FORM — оборачивает в /bin/sh -c '...'
+CMD python app.py
+# реально: /bin/sh -c 'python app.py'
+# PID 1 = sh, который НЕ форвардит сигналы детям → 10 секунд!
+
+# ✅ EXEC FORM — запускается напрямую
+CMD ["python", "app.py"]
+# PID 1 = python (всё ещё нужен signal handler, но хотя бы без sh-обёртки)
+
+# Bash имеет оптимизацию: `bash -c "single_cmd"` экзекает себя
+# и СТАНОВИТСЯ единым процессом с PID 1.
+# А `sh -c "..."` обычно НЕ оптимизируется → sh остаётся жить как обёртка.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Запомни на собес:</strong> 1) <code>docker stop</code> шлёт SIGTERM, через 10 сек — SIGKILL. 2) SIGKILL нельзя поймать. 3) PID 1 без обработчика SIGTERM = 10-секундная задержка остановки + потерянные данные. 4) Лечится <code>--init</code>, signal-handler, либо STOPSIGNAL в Dockerfile.
+      </div>
+
+      <!-- ============ ТЕМА 4: SYSTEMD ============ -->
+      <h3>systemd: юниты и systemctl</h3>
+      <p>systemd — это init-система (PID 1) и менеджер сервисов на большинстве современных Linux. Заменил SysV-init (bash-скрипты в /etc/init.d/). Даёт параллельный старт, автоперезапуск, централизованные логи, cgroups для изоляции ресурсов.</p>
+
+      <h4>Юниты и их типы</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ТИПЫ</span>
+          <span>Что бывает (99% времени — .service)</span>
+        </div>
+        <pre>.service   сервис/демон: nginx.service, postgresql.service
+.socket    слушает порт, поднимает .service при подключении
+.mount     точка монтирования (альтернатива /etc/fstab)
+.timer     запуск по расписанию (замена cron)
+.target    «уровень загрузки»: multi-user.target, graphical.target
+.path      следить за файлом/папкой, реагировать на изменения</pre>
+      </div>
+
+      <h4>Где живут юнит-файлы</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATHS</span>
+          <span>По приоритету: низ переопределяет верх</span>
+        </div>
+        <pre>/usr/lib/systemd/system/    ← от ПАКЕТОВ (dnf install nginx)
+                              НЕ редактируй — обновление пакета затрёт
+
+/etc/systemd/system/        ← ⭐ ТВОИ юниты + переопределения
+                              сюда кладёшь свои .service-файлы
+
+~/.config/systemd/user/     ← пользовательские (systemctl --user)
+                              запускаются от твоего имени, без sudo
+
+# /etc всегда побеждает /usr/lib — тюнить чужие сервисы можно так:
+sudo systemctl edit nginx
+# создаст override в /etc/systemd/system/nginx.service.d/override.conf</pre>
+      </div>
+
+      <h4>Структура .service-файла</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">INI</span>
+          <span>Три секции — Unit, Service, Install</span>
+        </div>
+        <pre>[Unit]                                ← МЕТАДАННЫЕ + ЗАВИСИМОСТИ
+Description=My App
+After=network.target docker.service   ← порядок (не зависимость)
+Wants=network-online.target           ← «хочу но переживу»
+Requires=docker.service               ← жёстко: упал он — упаду я
+
+[Service]                             ← КАК ЗАПУСКАТЬ
+Type=simple                           ← модель жизни (см. ниже)
+ExecStart=/usr/bin/myapp --foo        ← ⭐ команда (абсолютный путь!)
+ExecStop=/usr/bin/myapp stop          ← (если не указано — SIGTERM)
+ExecReload=/bin/kill -HUP $MAINPID    ← для systemctl reload
+User=appuser                          ← НЕ root (важно!)
+WorkingDirectory=/opt/myapp
+EnvironmentFile=/etc/myapp.env        ← переменные из файла
+Restart=on-failure                    ← ⭐ автоперезапуск
+RestartSec=5                          ← подождать 5 сек перед рестартом
+TimeoutStopSec=30                     ← макс. время на остановку
+
+[Install]                             ← АВТОЗАПУСК
+WantedBy=multi-user.target            ← без этого `enable` не работает</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ВАЖНО</span>
+          <span>Параметр Type=</span>
+        </div>
+        <pre>simple     процесс просто бежит, systemd сразу считает «запущен»
+           (90% самописных сервисов)
+
+forking    процесс форкает ребёнка и ВЫХОДИТ (старый стиль)
+           systemd ловит PID ребёнка через PIDFile=
+
+oneshot    отработал и вышел — это норма
+           часто с RemainAfterExit=yes (для миграций, инициализации)
+
+notify     процесс отправляет systemd сигнал «готов» через sd_notify()
+           (dockerd, postgresql)
+
+# Restart=:
+no              никогда (по умолчанию)
+on-failure      ⭐ ИСПОЛЬЗУЙ ЭТО — рестарт при сбое
+always          даже при штатном выходе</pre>
+      </div>
+
+      <h4>Команды systemctl</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Управление сервисами</span>
+        </div>
+        <pre>sudo systemctl start  myapp           # запустить
+sudo systemctl stop   myapp           # остановить
+sudo systemctl restart myapp          # stop + start
+sudo systemctl reload myapp           # ⭐ перечитать конфиг БЕЗ перезапуска
+
+sudo systemctl enable  myapp          # включить автозапуск
+sudo systemctl disable myapp          # выключить
+sudo systemctl enable --now myapp     # ⭐ enable + start одной командой
+
+systemctl status   myapp              # ⭐ первый шаг при «всё сломалось»
+systemctl is-active   myapp           # active / inactive / failed (для скриптов)
+systemctl is-enabled  myapp
+systemctl cat      myapp              # реальное содержимое юнит-файла
+systemctl edit     myapp              # ⭐ правильная правка (override + daemon-reload)
+systemctl list-dependencies myapp     # дерево зависимостей
+
+# ⚠️ ОБЯЗАТЕЛЬНО после ручной правки .service-файла:
+sudo systemctl daemon-reload</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ Главная ловушка systemd:</strong> когда ты редактируешь <code>.service</code>-файл вручную, systemd <strong>сам об этом не узнаёт</strong>. Юниты кэшированы в памяти. Без <code>systemctl daemon-reload</code> <code>restart</code> поднимет сервис со старым (битым) содержимым. <code>systemctl edit</code> делает reload автоматически — это предпочтительный способ правки.
+      </div>
+
+      <h4>journalctl — единый лог системы</h4>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Самые частые команды</span>
+        </div>
+        <pre># === ПО СЕРВИСУ ===
+journalctl -u myapp                   # все логи myapp за всё время
+journalctl -u myapp -n 50             # последние 50 строк
+journalctl -u myapp -n 50 -r          # последние 50, СВЕЖИЕ СВЕРХУ
+journalctl -u myapp -f                # ⭐ live tail (как tail -f), Ctrl+C
+
+# === ВРЕМЕННЫЕ ОКНА ===
+journalctl -u myapp --since "10 min ago"
+journalctl -u myapp --since today
+journalctl -u myapp --since "2026-06-02 14:00" --until "2026-06-02 15:00"
+
+# === ПО ПРИОРИТЕТУ ===
+journalctl -p err                     # только ошибки и выше
+journalctl -p warning -u myapp
+# уровни: emerg(0) alert(1) crit(2) err(3) warning(4) notice(5) info(6) debug(7)
+
+# === ЯДРО ===
+journalctl -k                         # сообщения ядра (как dmesg)
+journalctl -k -p err -b               # ошибки ядра за ТЕКУЩИЙ boot
+
+# === BOOT'Ы ===
+journalctl --list-boots               # список загрузок
+journalctl -b                         # логи текущего boot'а
+journalctl -b -1                      # ПРЕДЫДУЩИЙ boot (для разбора крашей)
+
+# === ДИСК ===
+journalctl --disk-usage
+sudo journalctl --vacuum-size=500M    # сжать до 500 МБ
+sudo journalctl --vacuum-time=7d      # хранить 7 дней</pre>
+      </div>
+
+      <div class="note">
+        <strong>Магия журнала:</strong> сервис просто пишет в <code>stdout</code>/<code>stderr</code>, а systemd-journald автоматически захватывает вывод. <strong>Никакой настройки логгера в коде не нужно</strong>. Это работает для любого <code>.service</code>-файла. На проде вместе с этим часто ставят <code>journal → Loki</code> или <code>journal → Vector → Elastic</code>, но локально достаточно <code>journalctl</code>.
+      </div>
+
+      <!-- ============ ТЕМА 5: СВОЙ .SERVICE ============ -->
+      <h3>Свой .service: docker-compose стек под systemd</h3>
+      <p>Реальный паттерн на сервере: твой проект описан в <code>docker-compose.yml</code>. Чтобы он запускался при загрузке сервера, перезапускался при падении и логировался в journal — оборачиваем в systemd-юнит.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">UNIT</span>
+          <span>/etc/systemd/system/portfolio.service</span>
+        </div>
+        <pre>[Unit]
+Description=DevOps Portfolio Stack
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/kirill/devops-portfolio
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=5
+User=kirill
+
+[Install]
+WantedBy=multi-user.target</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>Что зачем</span>
+        </div>
+        <pre>After=docker.service        ждать поднятия Docker'а перед стартом
+Requires=docker.service     если Docker упадёт — мы тоже падаем
+WorkingDirectory=           docker compose ищет yml относительно cwd
+ExecStart=docker compose up — главная команда (НЕ -d, чтобы systemd
+                             видел процесс и мог следить за ним)
+ExecStop=docker compose down — корректная остановка контейнеров
+User=kirill                 — стек крутится от твоего юзера,
+                             файлы НЕ будут root:root на хосте
+Restart=on-failure          — если упадёт — поднять через 5 сек
+WantedBy=multi-user.target  — запускать при загрузке системы</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Регистрация и запуск</span>
+        </div>
+        <pre>sudo tee /etc/systemd/system/portfolio.service > /dev/null <<'EOF'
+... содержимое выше ...
+EOF
+
+sudo systemctl daemon-reload          # перечитать юниты
+sudo systemctl start portfolio        # запустить
+systemctl status portfolio            # проверить
+sudo journalctl -u portfolio -f       # смотреть логи стека в реальном времени
+
+# когда дошли до прода:
+sudo systemctl enable --now portfolio # автозапуск при boot</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> процесс — это запущенная программа с PID. <code>ps</code>/<code>top</code>/<code>htop</code> — три способа посмотреть. <code>kill</code> шлёт сигналы (TERM = вежливо, KILL = насильно). PID 1 в Docker — особенный, без обработчика SIGTERM <code>docker stop</code> ждёт 10 сек. Лечится <code>--init</code> или signal handler. systemd управляет сервисами через юниты в <code>/etc/systemd/system/</code>; <code>systemctl</code> для управления, <code>journalctl</code> для логов. После любой правки юнита — <code>daemon-reload</code>. <code>Restart=on-failure</code> заменяет <code>pm2</code>/<code>supervisord</code>/<code>forever</code> одной строкой.
+      </div>
+
+      <!-- ============ ТЕМА 5: ЮЗЕРЫ И SUDO ============ -->
+      <h2 id="linux-fs-s5">Юзеры и sudo</h2>
+      <p>Пятая большая тема: кто такие юзеры в Linux, как их создавать (<code>useradd</code>), управлять (<code>usermod</code>, <code>passwd</code>), и как давать им <strong>точечные административные права</strong> через <code>/etc/sudoers.d/</code>. Это база безопасности на любом сервере: у каждого админа свой юзер, и каждый шаг с повышением прав логируется.</p>
+
+      <h3><code>/etc/passwd</code>, <code>/etc/shadow</code>, <code>/etc/group</code></h3>
+      <p>Три текстовых файла, которые держат всю информацию о юзерах. Их можно прочесть глазами (<code>passwd</code> и <code>group</code> — без sudo, <code>shadow</code> — только под рутом).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>/etc/passwd — одна строка на юзера, 7 полей через :</span>
+        </div>
+        <pre>kirill:x:1000:1000:Kirill:/home/kirill:/bin/bash
+  1     2  3    4    5         6           7
+
+1. имя для входа
+2. ПЛЕЙСХОЛДЕР пароля (x = «реальный хэш в /etc/shadow»)
+3. UID — числовой ID. 0 = root. 1-999 системные. 1000+ обычные.
+4. GID — основной группы (обычно совпадает с UID)
+5. GECOS — комментарий, обычно полное имя
+6. домашний каталог
+7. login shell. /sbin/nologin = «существует, но войти нельзя»
+                                (используется для postgres, nginx и т.д.)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>/etc/shadow — хэш пароля + политика</span>
+        </div>
+        <pre>kirill:$y$j9T$SALT$HASH:20581:0:99999:7:::
+
+# Формат поля пароля: $ID$SALT$HASH
+# ID = алгоритм:
+$1$  MD5         — ⚠️ старый, небезопасный
+$5$  SHA-256     — старые серверы
+$6$  SHA-512     — RHEL 7-8, Ubuntu &lt;22
+$y$  yescrypt    — Fedora 35+, современный (memory-hard, GPU-resistant)
+
+# Маркеры «логин запрещён»:
+!  или  *      — пароль заблокирован, через пароль войти нельзя
+                 (для системных юзеров и для свежесозданных без passwd)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>/etc/group — описание групп</span>
+        </div>
+        <pre>wheel:x:10:kirill,iosic
+docker:x:964:kirill
+ 1     2 3    4
+
+1. имя группы
+2. плейсхолдер пароля группы (почти никогда не используется)
+3. GID
+4. участники через запятую (НЕ считая тех, у кого это основная группа)
+
+# Проверить, в каких группах юзер:
+groups kirill
+id kirill</pre>
+      </div>
+
+      <h3><code>useradd</code>, <code>usermod</code>, <code>userdel</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Создание юзера</span>
+        </div>
+        <pre># ⚠️ adduser vs useradd:
+#   на Fedora/RHEL — adduser = СИМЛИНК на useradd (одно и то же)
+#   на Debian/Ubuntu — adduser — отдельный Perl-скрипт (интерактивный)
+# Универсально писать useradd явно.
+
+sudo useradd -m -s /bin/bash -c "Test User" testuser
+#         │   │              │
+#         │   │              └─ GECOS-комментарий
+#         │   └─ login shell
+#         └─ создать домашний каталог + копировать /etc/skel/
+
+# Под капотом одной командой:
+# 1. найти следующий свободный UID ≥ 1000
+# 2. создать ОТДЕЛЬНУЮ группу с тем же именем (user private group)
+# 3. строки в /etc/passwd, /etc/shadow (заперто), /etc/group
+# 4. /home/testuser/ от него, права 700, скопировать /etc/skel/
+
+# Задать пароль (снимает замок !):
+sudo passwd testuser
+
+# Добавить в дополнительные группы:
+sudo usermod -aG wheel,docker testuser     # ⭐ -a = APPEND, без него ЗАТРЁТ группы!
+
+# Удалить юзера + домашний каталог:
+sudo userdel -r testuser</pre>
+      </div>
+
+      <div class="note">
+        <strong>⚠️ <code>usermod -G</code> без <code>-a</code></strong> = ЗАМЕНИТЬ список групп. Это означает «выкинуть из всех остальных». Один из главных способов случайно вылететь из <code>wheel</code> и потерять sudo. Запомни: <strong>всегда <code>usermod -aG</code></strong>.
+      </div>
+
+      <h3><code>su</code> vs <code>sudo</code></h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗНИЦА</span>
+          <span>Полная смена личности vs точечный доступ</span>
+        </div>
+        <pre>su        смена ПОЛНОЙ личности на одну сессию
+          требует ПАРОЛЬ ЦЕЛЕВОГО юзера (root'а — для перехода в root)
+          один запрос пароля → всё подряд от его имени
+
+sudo      выполнить ОДНУ команду от имени root (или другого юзера)
+          требует ТВОЙ пароль (если ты в правах)
+          КАЖДАЯ команда логируется (аудит!)
+          можно дать точечно «только перезапуск nginx»
+
+# На проде везде sudo — потому что есть аудит и точечные права.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Варианты sudo su / sudo -i / machinectl</span>
+        </div>
+        <pre>sudo su          стать root БЕЗ перезагрузки окружения
+                 cwd, PATH, env остаются твои
+                 # вместо $, но контекст твой
+
+sudo su -        стать root С полным login-окружением
+                 cwd = /root, прочитан /root/.bashrc
+                 PATH сброшен на root'овский
+
+sudo -i          ⭐ современная замена sudo su - (чище)
+sudo -s          современная замена sudo su (без login-env)
+
+sudo -u oracle -i        перейти в oracle с полным окружением
+machinectl shell user@   ⭐ ЛУЧШЕЕ для прода — чистая login-сессия,
+                         как если бы юзер физически зашёл с консоли
+                         (закрывает PAM/D-Bus-капканы при работе с
+                          сервисами от имени другого юзера)</pre>
+      </div>
+
+      <h3>sudoers и точечный sudo</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATHS</span>
+          <span>Где живут правила</span>
+        </div>
+        <pre>/etc/sudoers       главный файл, НЕ редактировать напрямую!
+/etc/sudoers.d/    папка с фрагментами — сюда кладём свои правила
+
+# ⚠️ NEVER do: sudo nano /etc/sudoers
+# Битый синтаксис = потеря sudo навсегда (надо single-user mode чинить).
+
+# Правильный путь:
+sudo visudo                              # /etc/sudoers
+sudo visudo -f /etc/sudoers.d/myapp      # фрагмент
+# visudo проверяет синтаксис при сохранении и не даст сохранить битое.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SYNTAX</span>
+          <span>Формат правила</span>
+        </div>
+        <pre>USER  MACHINE=(RUNAS_USER) [TAGS:] COMMANDS
+
+# Примеры:
+root    ALL=(ALL)        ALL                     # root всё может
+%wheel  ALL=(ALL)        ALL                     # группа wheel всё может
+%wheel  ALL=(ALL) NOPASSWD: ALL                  # ⚠️ без пароля — на проде не делать!
+appuser ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart nginx
+                                                 # ТОЛЬКО эта команда, без пароля
+deploy  ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart *.service
+                                                 # любой *.service — wildcard
+backup  ALL=(ALL) NOPASSWD: /usr/bin/rsync /data /backup
+                                                 # ровно эта команда, в проде так дают cron-задачам
+
+# Поля:
+#   USER          — кто (юзер) или %группа
+#   MACHINE       — с какой машины (для NIS-сетей; обычно ALL)
+#   (RUNAS_USER)  — от чьего имени можно (после sudo -u; обычно ALL)
+#   TAGS          — например NOPASSWD: или NOLOG:
+#   COMMANDS      — какие команды разрешены (полный путь!)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PRACTICE</span>
+          <span>Создание точечного sudo для сервиса</span>
+        </div>
+        <pre># Дать appuser право рестартить только Docker:
+sudo bash -c 'echo "appuser ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart docker" \
+              > /etc/sudoers.d/appuser-docker'
+sudo chmod 440 /etc/sudoers.d/appuser-docker     # обязательные права
+
+# Проверить, что разрешено юзеру:
+sudo -u appuser sudo -n -l        # -l = list rules, -n = non-interactive
+# выведет: (ALL) NOPASSWD: /usr/bin/systemctl restart docker
+
+# Проверить запрет:
+sudo -u appuser sudo -n cat /etc/shadow
+# &gt; sudo: a password is required
+
+# Проверить разрешение:
+sudo -u appuser sudo -n systemctl restart docker
+# &gt; (без вывода = OK)</pre>
+      </div>
+
+      <h3>Аудит sudo через journalctl</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Кто что делал через sudo</span>
+        </div>
+        <pre># Все sudo-операции за последний час:
+sudo journalctl _COMM=sudo --since "1 hour ago"
+
+# Цепочка из аудита:
+# sudo[268030]: testuser : TTY=pts/5 ; PWD=/home/kirill/perms-lab ;
+#                          USER=root ; COMMAND=/usr/bin/systemctl restart docker
+#
+# В одной строке:
+#   КТО запустил sudo (testuser)
+#   ОТКУДА (TTY=pts/5)
+#   ИЗ КАКОЙ ПАПКИ (PWD=)
+#   ОТ ИМЕНИ КОГО (USER=root)
+#   КАКУЮ команду (COMMAND=)
+
+# Это и есть тот самый "аудит на проде" — расследование инцидента
+# делается одной командой journalctl.
+
+# На старых системах журнал sudo пишется в:
+sudo tail /var/log/secure       # RHEL/CentOS
+sudo tail /var/log/auth.log     # Debian/Ubuntu</pre>
+      </div>
+
+      <h3>Группы wheel и docker — эквивалент root</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SECURITY</span>
+          <span>Кого не стоит добавлять без раздумий</span>
+        </div>
+        <pre>wheel       на Fedora/RHEL — «может sudo»
+            на Debian/Ubuntu роль играет группа sudo
+            ⭐ членство = возможность выполнить sudo
+
+docker      ⚠️ ЭКВИВАЛЕНТНО root
+            кто в docker — может: docker run -v /:/host alpine
+            → полный доступ к хост-ФС через контейнер
+            на проде дают редко и осознанно
+
+vboxusers   доступ к VirtualBox-устройствам
+audio,video периферия (микрофон, камера) — обычно у GUI-юзеров
+
+# Универсальный вопрос на собес:
+# «Почему группа docker эквивалентна root?»
+# Ответ — пример выше: bind-mount корня в контейнер.</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> юзер = строка в <code>/etc/passwd</code> + хэш в <code>/etc/shadow</code> + членство в группах в <code>/etc/group</code>. UID — то, что видит ядро, имя — для людей. <code>useradd -m</code> создаёт юзера + домашний каталог. На Fedora <code>adduser</code> = <code>useradd</code>, на Debian — другой скрипт. <code>passwd</code> ставит пароль (без него юзер заперт). <code>usermod -aG</code> добавляет в группы (без <code>-a</code> затрёт существующие!). <code>su</code> — полная смена личности, <code>sudo</code> — точечная команда + аудит. Правила в <code>/etc/sudoers</code> и <code>/etc/sudoers.d/</code>, правка через <code>visudo</code>. <strong>Прод-паттерн: фрагмент в <code>/etc/sudoers.d/</code> с одной разрешённой командой, без NOPASSWD на ALL.</strong> Группа <code>docker</code> = эквивалент root.
+      </div>
+
+      <!-- ============ ТЕМА 6: ПАКЕТЫ И ЛОГИ ============ -->
+      <h2 id="linux-fs-s6">Пакеты (dnf) и ротация логов</h2>
+      <p>Шестая тема: как ставить, обновлять и откатывать пакеты через <code>dnf</code> на Fedora/RHEL, и как настроить автоматическую ротацию логов через <code>logrotate</code>, чтобы они не съели диск.</p>
+
+      <h3>dnf — пакетный менеджер Fedora/RHEL</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ИСТОРИЯ</span>
+          <span>rpm → yum → dnf → dnf5</span>
+        </div>
+        <pre>rpm    низкоуровневый, ставит ОДИН .rpm-файл, без зависимостей
+yum    поверх rpm, разрешает зависимости (RHEL 5-7, CentOS 7)
+dnf    переписанный yum на Python 3 (Fedora 22+, RHEL 8+)
+dnf5   переписанный dnf на C++ (Fedora 41+) — быстрее, современный
+
+# Аналоги на других дистрибутивах:
+apt     Debian/Ubuntu
+pacman  Arch
+zypper  openSUSE
+apk     Alpine</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Базовые команды</span>
+        </div>
+        <pre># === ПОИСК И ИНФА ===
+dnf search KEYWORD          # ⚠️ фуззи: ищет подстроку в имени И описании
+                            # для общих слов даёт много false-positive
+
+dnf info PACKAGE            # ⭐ точное имя — версия, размер, описание, repo
+dnf list installed | grep X # что установлено
+
+# === УСТАНОВКА И УДАЛЕНИЕ ===
+sudo dnf install -y htop tree         # -y = не спрашивать подтверждение
+sudo dnf remove qbittorrent           # удалить (без зависимостей)
+sudo dnf autoremove                   # удалить ненужные зависимости
+
+# === ОБНОВЛЕНИЕ ===
+sudo dnf check-update                 # что есть обновить (exit code 100 если есть)
+sudo dnf update                       # обновить ВСЁ
+sudo dnf upgrade nginx                # обновить конкретный пакет
+sudo dnf distro-sync                  # синхронизация с версиями в репо
+                                      # (используется при апгрейде дистра)
+
+# === ⭐ ИСТОРИЯ И ОТКАТ ===
+sudo dnf history list                 # все транзакции с ID, датой, действием
+sudo dnf history info 47              # детали транзакции 47 (что ставилось)
+sudo dnf history undo 47              # ОТКАТИТЬ транзакцию 47
+sudo dnf history rollback 46          # вернуть систему в состояние ПОСЛЕ 46
+# Эта связка спасает на проде, когда обновление сломало сервис.
+
+# === КАКОЙ ПАКЕТ СОДЕРЖИТ ФАЙЛ ===
+dnf provides /usr/bin/htop            # для встретившегося незнакомого бинарника
+dnf provides '*/nginx.conf'           # по wildcard
+
+# === РЕПОЗИТОРИИ ===
+dnf repolist                          # список активных репо
+dnf repolist all                      # включая отключенные
+sudo dnf config-manager --add-repo URL.repo
+sudo dnf install --enablerepo=docker-ce ...     # одноразово включить repo</pre>
+      </div>
+
+      <div class="note">
+        <strong>Главная фича dnf на проде</strong> — <code>dnf history undo &lt;ID&gt;</code>. Этого <strong>нет в apt</strong> из коробки. Когда апдейт ломает сервис в 3 часа ночи — откат одной командой за минуту. На Debian тот же откат требует ручного <code>apt install package=oldversion</code> для каждого пакета.
+      </div>
+
+      <h3>logrotate — чтобы логи не съели диск</h3>
+      <p>Логи на сервере растут постоянно: nginx-access, докер-контейнеры, application-логи. Если их не подрезать — рано или поздно <code>/var/log</code> заполнит диск и сервисы упадут с «No space left on device». <code>logrotate</code> автоматически обрезает, упаковывает и удаляет старые логи.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATHS</span>
+          <span>Где живут конфиги</span>
+        </div>
+        <pre>/etc/logrotate.conf    глобальные дефолты + include /etc/logrotate.d
+/etc/logrotate.d/      ⭐ папка с конфигом ДЛЯ КАЖДОГО сервиса:
+                       rsyslog, httpd, fail2ban, samba, mariadb, ...
+
+# Запускается СИСТЕМНЫМ ТАЙМЕРОМ ежедневно:
+systemctl list-timers logrotate.timer
+
+# Интересный момент: таймер ежедневный, но сами конфиги могут быть weekly.
+# logrotate проверяет ВНУТРИ конфига: «прошла ли неделя?» и решает сам.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONFIG</span>
+          <span>Типовой конфиг /etc/logrotate.d/rsyslog</span>
+        </div>
+        <pre>/var/log/cron
+/var/log/maillog
+/var/log/messages
+/var/log/secure
+/var/log/spooler
+{
+    missingok               ← если файл отсутствует — не ругаться
+    sharedscripts           ← postrotate ОДИН на весь блок (не для каждого)
+    postrotate
+        /usr/bin/systemctl reload rsyslog.service &gt;/dev/null 2&gt;&amp;1 || true
+                            ← после ротации — SIGHUP сервису,
+                              чтобы он переоткрыл новый файл
+    endscript
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DIRECTIVES</span>
+          <span>Самые частые директивы</span>
+        </div>
+        <pre>daily / weekly / monthly    как часто ротировать
+rotate 7                    хранить 7 старых копий, остальное удалить
+compress                    ⭐ упаковать старые в .gz (экономит место)
+delaycompress               не сжимать самую свежую копию
+                            (нужно если приложение ещё в неё пишет)
+dateext                     суффикс — дата (messages-20260603), не число
+missingok                   файла нет → не паниковать
+notifempty                  пустые не ротировать
+create 0640 root adm        создать новый файл с такими правами/владельцем
+copytruncate                ⚠️ копировать содержимое + обнулить ОРИГИНАЛ
+                            нужно для приложений, которые НЕ умеют SIGHUP
+                            (NodeJS, многие самописы)
+size 100M                   ротировать если файл &gt; 100 МБ
+maxage 30                   ⭐ удалять копии старше 30 дней
+postrotate / endscript      команды ПОСЛЕ ротации (обычно SIGHUP сервису)
+prerotate  / endscript      команды ДО ротации</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONFIG</span>
+          <span>Почасовая ротация + «хранить только N архивов» (задание стажировки)</span>
+        </div>
+        <pre># /etc/logrotate.d/top5 — ротировать /var/log/top5.log каждый час,
+# держать только 2 последних архива:
+/var/log/top5.log {
+    hourly
+    rotate 2                ← хранить 2 старые копии, третью — под нож
+    compress                ← старые в .gz
+    missingok
+    notifempty
+}
+
+# ЛОВУШКА: директива hourly есть, но системный logrotate.timer
+# запускается РАЗ В СУТКИ — конфиг с hourly просто не будет успевать
+# срабатывать чаще. Лечение — научить таймер тикать каждый час:
+sudo systemctl edit logrotate.timer      # drop-in override:
+  [Timer]
+  OnCalendar=                            ← пустая строка СБРАСЫВАЕТ старое расписание
+  OnCalendar=hourly
+sudo systemctl daemon-reload
+systemctl list-timers logrotate.timer    # проверить: NEXT через час
+
+# Альтернатива по-старинке: строка в cron —
+# 0 * * * * /usr/sbin/logrotate /etc/logrotate.d/top5</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Тест и отладка</span>
+        </div>
+        <pre># ⭐ DEBUG-режим: ничего не делает, только говорит ЧТО БЫ сделал
+sudo logrotate -d /etc/logrotate.d/myapp 2>&1 | head -30
+
+# Вывод покажет:
+# considering log /var/log/myapp.log
+#   Now: 2026-06-03 18:00
+#   Last rotated at 2026-06-01 03:14
+#   log does not need rotating  ← или «log needs rotating»
+
+# FORCE-режим: ротировать сейчас, игнорируя расписание
+sudo logrotate -f /etc/logrotate.d/myapp
+
+# Где logrotate помнит «когда что последний раз ротировалось»:
+cat /var/lib/logrotate/logrotate.status</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PRACTICE</span>
+          <span>Свой конфиг для самописного сервиса</span>
+        </div>
+        <pre># Допустим, твой FastAPI пишет в /var/log/myapp/*.log
+# Создаём /etc/logrotate.d/myapp:
+
+sudo tee /etc/logrotate.d/myapp > /dev/null <<'EOF'
+/var/log/myapp/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 myapp myapp
+    sharedscripts
+    postrotate
+        systemctl reload myapp.service > /dev/null 2>&1 || true
+    endscript
+}
+EOF
+
+# Проверить, что не сломан:
+sudo logrotate -d /etc/logrotate.d/myapp</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> <code>dnf search</code> — fuzzy, <code>dnf info</code> — точное имя. <code>dnf install -y</code>, <code>dnf update</code>, <code>dnf history undo &lt;ID&gt;</code> для отката (фича dnf, у apt такого нет). <code>dnf provides &lt;файл&gt;</code> — найти пакет по файлу. logrotate запускается ежедневным systemd-timer'ом и сам решает по конфигу daily/weekly/monthly. Конфиги в <code>/etc/logrotate.d/</code>. Главные директивы: <code>rotate N</code>, <code>compress</code>, <code>missingok</code>, <code>copytruncate</code> (для NodeJS/самописа без SIGHUP), <code>postrotate</code> с SIGHUP для сервисов. Тест через <code>logrotate -d</code> — ничего не делает, только говорит ЧТО БЫ сделал.
+      </div>
+
+      <h2 id="linux-fs-s7">Bash — скрипты и автоматизация</h2>
+      <p>Bash (Bourne Again SHell) — это командная оболочка: программа, которая читает твои команды и заставляет ядро их выполнять. Когда ты что-то печатаешь в терминале — с тобой разговаривает именно bash. А <strong>скрипт</strong> — это те же команды, сложенные в файл, чтобы bash прогнал их пачкой, сверху вниз, без тебя.</p>
+
+      <h3>Как работает bash — принципы</h3>
+      <p>bash — тупой, буквальный и честный солдат: делает ровно то, что написано, и ни о чём не догадывается. Отсюда все его принципы:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PRINCIPLES</span>
+          <span>Из чего складывается логика bash</span>
+        </div>
+        <pre># 1. Читает файл СВЕРХУ ВНИЗ, строку за строкой.
+# 2. Почти всё в bash — это ВЫЗОВ КОМАНДЫ. Команда бывает:
+#      внешняя программа   — ls, pg_dump, tar, scp, find
+#      встроенная (builtin)— cd, echo, export
+#      твоя функция        — log() { ... }
+# 3. Каждая команда возвращает КОД ЗАВЕРШЕНИЯ (exit code):
+#      0     = успех
+#      не 0  = ошибка
+#    Именно по этому коду работают && , || и set -e.
+# 4. Пробелы и символы ЗНАЧИМЫ — bash сам не догадается:
+#    a=1     — присваивание переменной
+#    a = 1   — для bash это попытка запустить КОМАНДУ 'a' с аргументами = и 1</pre>
+      </div>
+
+      <h3>Зачем скрипт: руками против автоматизации</h3>
+      <p>Допустим, надо снимать бэкап базы каждую ночь. <strong>Руками</strong> это значит: зайти на сервер, набрать <code>pg_dump</code>, дождаться, набрать <code>tar</code>, дождаться, набрать <code>scp</code>, дождаться, не забыть удалить сырьё, не забыть подчистить старые архивы. И так каждую ночь — а забыл шаг или уехал в отпуск, и бэкапов нет.</p>
+      <p><strong>Скриптом</strong> мы описываем всё это ОДИН раз и по уму: сначала выносим в переменные всё, что меняется (имя базы, папка, адрес сервера) — чтобы не повторять их в каждой строке и менять в одном месте. Потом перечисляем шаги по порядку. А запуск отдаём <code>cron</code>, чтобы машина делала это сама в три ночи, пока мы спим. Дальше — как такой скрипт растёт от одной команды до боевого, шаг за шагом.</p>
+
+      <h3>Шаг 1. Одна команда</h3>
+      <p>Любой скрипт начинается с одного действия. Снять дамп базы — это одна команда <code>pg_dump</code>:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">STEP 1</span>
+          <span>С чего всё начинается</span>
+        </div>
+        <pre>pg_dump production &gt; dump.sql
+#  pg_dump    — утилита постгреса: выгружает базу в текстовый SQL
+#  production — имя базы
+#  &gt; dump.sql — "положи вывод в файл dump.sql" (перенаправление stdout)</pre>
+      </div>
+      <p>Работает, но это пока просто команда в терминале. Чтобы оно стало скриптом — заводим файл и первой строкой пишем шебанг:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Шебанг — паспорт скрипта</span>
+        </div>
+        <pre>#!/bin/bash
+#  шебанг: "запускай этот файл интерпретатором /bin/bash"
+#  без него система не знает, чем выполнять файл</pre>
+      </div>
+
+      <h3>Шаг 2. Переменные, кавычки и подстановка команд</h3>
+      <p>В имя бэкапа хочется впихнуть дату, чтобы файлы не затирали друг друга. Дату выдаёт команда <code>date</code>, а чтобы подставить её РЕЗУЛЬТАТ — оборачиваем в <code>$( )</code>:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">VARS</span>
+          <span>Переменные и заморозка значения</span>
+        </div>
+        <pre>DATE=$(date +"%Y-%m-%d")   # $( ) = выполни команду, подставь результат
+DB=production
+pg_dump $DB &gt; dump_$DATE.sql   # → dump_2026-06-12.sql
+
+# Форматы date:
+#  %F = 2026-06-12   %T = 14:30:05   %Y год %m месяц %d день
+#  %H часы %M минуты %S секунды</pre>
+      </div>
+      <p>Ключевой момент: переменная вычисляется ОДИН раз — в момент присваивания — и замораживается. <code>$(date)</code> отработала, в <code>DATE</code> легла строка, и дальше <code>$DATE</code> — это «достать из кармана», а не «снова посмотреть на часы». Поэтому имя файла одинаковое на всех шагах, даже если скрипт работает час. Если бы мы звали <code>$(date)</code> в каждой строке заново — время бы разъехалось, и <code>tar</code> искал бы файл, которого нет.</p>
+      <p>Кавычки тоже не для красоты — это разные режимы работы bash:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">QUOTES</span>
+          <span>Двойные vs одинарные</span>
+        </div>
+        <pre>"двойные"   — bash подставляет переменные:  echo "$DB"  → production
+'одинарные' — всё буквально, $ не трогается: echo '$DB'  → $DB
+
+# Спецсимволы ($ ! @ в паролях) — только в ОДИНАРНЫХ:
+echo "P@$$w0rd"   # в двойных $$ = PID процесса → пароль испорчен
+echo 'P@$$w0rd'   # в одинарных — символ в символ, как надо</pre>
+      </div>
+
+      <h3>Шаг 3. Связываем команды: ; && ||</h3>
+      <p>Один шаг — это мало. Нам надо: создать папку → снять дамп → запаковать → отправить → почистить. Команды соединяют операторами, и разница между ними критична:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">LOGIC</span>
+          <span>Операторы связки и перенаправление</span>
+        </div>
+        <pre>cmd1 ; cmd2     по очереди (cmd2 пойдёт ДАЖЕ если cmd1 упала)
+cmd1 && cmd2    "И":   cmd2 только если cmd1 УСПЕШНА (код возврата 0)
+cmd1 || cmd2    "ИЛИ": cmd2 только если cmd1 УПАЛА (код НЕ 0)
+
+# Это НЕ стрелки блок-схемы! Логировать каждый шаг через || — путь
+# к вывернутой логике, где реальная работа уезжает в "ветку ошибки".
+
+# Перенаправление в файл — два вида:
+cmd &gt; file      ЗАТЕРЕТЬ файл заново
+cmd &gt;&gt; file     ДОПИСАТЬ в конец (для логов — только так!)</pre>
+      </div>
+      <p>Для бэкапа нужен <code>&&</code>: «паковать имеет смысл, только если дамп реально снялся; отправлять — только если запаковалось».</p>
+
+      <h3>Шаг 4. Пароль — отдельно от кода (~/.pgpass)</h3>
+      <p>pg_dump ходит на чужой сервер и хочет пароль. Под cron'ом в три ночи ввести его некому — скрипт повиснет или упадёт. Засунуть пароль прямо в скрипт тоже нельзя: скрипт уедет в git, а git помнит всё навсегда — пароль достанут из истории за три секунды. Правильно — спрятать пароль в файл <code>~/.pgpass</code>, откуда постгрес сам его возьмёт:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SECRET</span>
+          <span>~/.pgpass + флаг -w</span>
+        </div>
+        <pre># формат: hostname:port:database:username:password
+echo '192.168.1.50:5432:production:admin:ПАРОЛЬ' &gt; ~/.pgpass
+chmod 600 ~/.pgpass
+#  600 = читать/писать только владельцу. Если права шире —
+#  постгрес-параноик МОЛЧА проигнорирует файл (не ошибка, просто "не вижу").
+
+# в скрипте добавляем -w: "пароль руками не клянчи, нет — сразу падай"
+pg_dump -h $DB_HOST -U $DB_USER -w $DB_NAME &gt; "$BACKUP_DIR/dump_$DATE.sql"</pre>
+      </div>
+      <p>Правило на всю жизнь: <strong>секрет и код не лежат в одном файле.</strong></p>
+
+      <h3>Шаг 5. Убираем за собой: rm и find</h3>
+      <p>Скрипт создаёт файлы каждую ночь. Если не чистить — две беды: рядом с архивом валяется сырой <code>.sql</code> (двойной расход места), и старые архивы копятся вечно, пока диск не забьётся — и тогда бэкапы вообще перестанут делаться.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CLEANUP</span>
+          <span>rm сырья + find для старья</span>
+        </div>
+        <pre>rm "$BACKUP_DIR/dump_$DATE.sql"   # сырой дамп после упаковки уже не нужен
+
+find "$BACKUP_DIR" -name "*.tar.gz" -mtime +7 -delete
+#  find  ГДЕ           ФИЛЬТР            ДЕЙСТВИЕ
+#  -name "*.tar.gz"  только архивы (кавычки! иначе bash раскроет * сам)
+#  -mtime +7         старше 7 дней   (+N = старше, -N = младше)
+#  -delete           снести найденное
+
+# ⚠️ СНАЧАЛА запусти БЕЗ -delete — посмотреть, кого find нашёл.
+# Убедился, что там только старьё — ТОЛЬКО потом дописывай -delete.</pre>
+      </div>
+
+      <h3>Шаг 6. Свой инструмент: функции и DRY</h3>
+      <p>Логировать хочется на каждом шаге, но копировать <code>echo ... &gt;&gt; log</code> двадцать раз — позор. Пишем СВОЮ команду — функцию <code>log</code> — один раз и зовём как родную:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FUNC</span>
+          <span>Функция log() — принцип DRY</span>
+        </div>
+        <pre>log() { echo "$(date '+%F %T') $1" &gt;&gt; /var/log/backup.log; }
+#  log()      объявляем функцию по имени log
+#  { ... ; }  тело (пробелы и ; внутри обязательны)
+#  $1         первый аргумент:  log "привет"  → внутри $1 = "привет"
+
+log "Бэкап создан"   # формат лога теперь меняется в ОДНОМ месте</pre>
+      </div>
+      <p>Это принцип <strong>DRY</strong> — <em>Don't Repeat Yourself</em>, «не дублируй». Захотел поменять формат записи — правишь функцию, а не двадцать строк по всему скрипту.</p>
+
+      <h3>Шаг 7. Чтобы скрипт не врал: set -e и trap</h3>
+      <p>По умолчанию bash — пофигист: команда упала, а он спокойно бежит дальше и пакует пустоту. Чиним заклинанием в начале скрипта и ставим «дежурного», который ловит любое падение:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">SAFE</span>
+          <span>set -euo pipefail + trap</span>
+        </div>
+        <pre>set -euo pipefail
+#  -e          упасть на первой же ошибке (иначе bash тащит дальше)
+#  -u          ругаться на необъявленную переменную (ловит опечатки)
+#  -o pipefail в конвейере a|b: провал любого звена = провал всего
+
+trap 'log "ОШИБКА на шаге: $STEP"; exit 1' ERR
+#  trap 'код' ERR — "дежурный": при ЛЮБОМ падении выполнит код (лог + выход).
+#  АПОСТРОФЫ важны! они откладывают подстановку $STEP до момента ПАДЕНИЯ,
+#  а не вычисляют сейчас (сейчас $STEP ещё пустой).
+
+STEP="дамп базы"   # ярлычок перед командой → trap скажет, ГДЕ рвануло
+pg_dump ...</pre>
+      </div>
+      <p>Теперь не нужно лепить <code>|| log "ошибка"</code> после каждой строки: одна сигнализация стережёт весь скрипт, а переменная <code>STEP</code> подсказывает, на каком именно шаге случилась беда. Логика разделена: за «падать или нет» отвечает <code>set -e</code>, за «куда писать о падении» — <code>trap</code>, а сами <code>log</code> между шагами просто ведут летопись.</p>
+
+      <h3>Итог: боевой backup.sh</h3>
+      <p>Складываем все кирпичи вместе. Вот тот самый «лютый скрипт», в который вырос наш одинокий <code>pg_dump</code> из шага 1:</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>backup.sh целиком</span>
+        </div>
+        <pre>#!/bin/bash
+set -euo pipefail
+
+DATE=$(date +"%Y-%m-%d")
+BACKUP_DIR='/var/backups'
+SERVER='backup@msk-files.dns.ru:/storage/backups/'
+DB_HOST=192.168.1.50
+DB_NAME=production
+DB_USER=admin
+
+log() { echo "$(date '+%F %T') $1" &gt;&gt; /var/log/backup.log; }
+
+trap 'log "ОШИБКА: бэкап $DATE упал на шаге: $STEP"; exit 1' ERR
+
+log "=== Старт бэкапа $DATE ==="
+
+STEP="создание директории"
+mkdir -p "$BACKUP_DIR"
+log "Папка готова. Снимаю дамп базы..."
+
+STEP="дамп базы"
+pg_dump -h $DB_HOST -U $DB_USER -w $DB_NAME &gt; "$BACKUP_DIR/dump_$DATE.sql"
+log "Дамп снят. Архивирую..."
+
+STEP="архивация"
+tar -czf "$BACKUP_DIR/dump_$DATE.tar.gz" "$BACKUP_DIR/dump_$DATE.sql"
+log "Заархивировано. Удаляю сырьё..."
+
+STEP="удаление сырья"
+rm "$BACKUP_DIR/dump_$DATE.sql"
+log "Сырьё удалено. Отправляю в Москву..."
+
+STEP="отправка в Москву"
+scp "$BACKUP_DIR/dump_$DATE.tar.gz" "$SERVER"
+log "Архив улетел. Чищу старьё..."
+
+STEP="чистка старья"
+find "$BACKUP_DIR" -name "*.tar.gz" -mtime +7 -delete
+log "=== ГОТОВО: бэкап $DATE создан и отправлен ==="</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> скрипт растят по кирпичу: одна команда → переменные с <code>$( )</code> (значение замораживается при присваивании) → связка через <code>&&</code> (следующий шаг только при успехе предыдущего) → секреты в <code>~/.pgpass</code> (<code>chmod 600</code>!), а не в коде → уборка за собой через <code>rm</code> и <code>find -mtime +7 -delete</code> → свой инструмент <code>log()</code> (DRY, не дублируй) → защита <code>set -euo pipefail</code> + <code>trap ... ERR</code> с ярлычком <code>STEP</code>, чтобы скрипт падал честно и говорил, ГДЕ упал. Кавычки: двойные подставляют переменные, одинарные — буквально (пароли и <code>trap</code> — в одинарных). Перенаправление: <code>&gt;</code> затирает, <code>&gt;&gt;</code> дописывает. Запускать такой скрипт по расписанию — через <code>cron</code> (см. раздел ниже).
+      </div>
+
+      <h2 id="linux-fs-s8">Bash — логика: условия, циклы, case, функции</h2>
+      <p>Если <code>backup.sh</code> был про «делай по порядку», то здесь — про «думай»: ветвись, повторяй, проверяй ввод. Соберём интерактивный <code>exam.sh</code> — спрашивает балл, валидирует его, ставит оценку и рисует полоску. На нём пройдём весь управляющий скелет bash. И как всегда главный фокус — на <strong>скобках, кавычках и разделителях</strong>, потому что bash тупой формалист и спотыкается ровно на них.</p>
+
+      <h3>if и квадратные скобки <code>[ ]</code></h3>
+      <p>Главный сюрприз новичка: <code>[ ]</code> — это <strong>не синтаксис языка, а КОМАНДА</strong> (второе имя — <code>test</code>). Она проверяет условие и возвращает exit-код (0 = правда, 1 = ложь), а <code>if</code> просто смотрит на этот код. Из «это команда» вытекают оба капкана.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONDITIONS</span>
+          <span>if / else и проверки</span>
+        </div>
+        <pre>if [ -d /tmp ]; then
+    echo "папка есть"
+else
+    echo "нет"
+fi
+#  [ ]  — КОМАНДА test, не украшение
+#  флаги: -f обычный файл? / -d папка? / -e существует? / -z строка пустая? / -n непустая
+
+# ☠️ КАПКАН 1 — ПРОБЕЛЫ. Раз [ ] это команда, её аргументы идут через пробел:
+#    [ -d /tmp ]   ✅      [-d /tmp]   ❌ → bash ищет команду "[-d" → command not found
+
+# ☠️ КАПКАН 2 — числа сравнивают БУКВАМИ, а не значками:
+#    -eq равно   -ne не равно   -lt &lt;   -le &lt;=   -gt &gt;   -ge &gt;=
+#    Почему не &gt; и &lt;? Внутри [ ] значок &gt; — это ПЕРЕНАПРАВЛЕНИЕ в файл!
+#    [ $a &gt; 5 ] не сравнит, а молча создаст файл с именем "5". Классика граблей.</pre>
+      </div>
+
+      <h3>if / elif / else — диапазоны</h3>
+      <p>Когда вариантов больше двух — добавляем <code>elif</code> (else if, «а иначе если»). Проверки идут <strong>сверху вниз</strong>, срабатывает первая подошедшая. Хитрость для диапазонов: идём <strong>от большего порога к меньшему</strong> — тогда верхнюю границу не надо писать руками, она отрезается сама.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ELIF</span>
+          <span>Цепочка условий для диапазонов</span>
+        </div>
+        <pre>if   [ "$x" -ge 90 ]; then echo "отлично"
+elif [ "$x" -ge 70 ]; then echo "хорошо"
+elif [ "$x" -ge 50 ]; then echo "удовлетворительно"
+else echo "не сдал"
+fi
+#  до "-ge 70" дойдём ТОЛЬКО если "-ge 90" не сработало → значит x уже &lt; 90.
+#  Поэтому "от 70 до 89" писать не нужно — порядок сам отрезает верх.
+#  Переменную — в кавычки: "$x". Пустая без кавычек развалит синтаксис test.</pre>
+      </div>
+
+      <h3>case — переключатель по значению</h3>
+      <p>Когда одну переменную сравниваем с кучей конкретных значений — <code>case</code> читается куда чище, чем простыня из <code>if</code>. Это «меню»: выбери ветку по значению.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CASE</span>
+          <span>Ветвление по шаблонам</span>
+        </div>
+        <pre>case "$RESULT" in
+    5) echo "красавчик" ;;
+    4) echo "норм, бывает лучше" ;;
+    3|2) echo "ну такое" ;;          # | = "или": несколько шаблонов на ветку
+    *) echo "учи матчасть" ;;        # * = всё остальное (default)
+esac
+#  ;;   — конец ветки, ДВОЙНАЯ! перенос строки её НЕ заменяет (в отличие от обычной ;)
+#  )    — закрывает шаблон
+#  esac — конец блока (это "case" задом наперёд)
+#  case умеет glob (start|stop, *.txt), но НЕ умеет диапазоны "от 50 до 70" —
+#  для диапазонов чисел бери if/elif.</pre>
+      </div>
+
+      <h3>Циклы for / while + арифметика <code>$(( ))</code></h3>
+      <p>Без циклов скрипт — просто список команд. <code>for</code> бежит по готовому списку, <code>while</code> крутится, пока условие истинно. А считать числа bash умеет только внутри <code>$(( ))</code> — для него по умолчанию всё строки.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">LOOPS</span>
+          <span>for, while и счётчик</span>
+        </div>
+        <pre>for i in 1 2 3; do echo "$i"; done    # список — слова ЧЕРЕЗ ПРОБЕЛ, без запятых!
+for i in {1..5}; do echo "$i"; done   # {1..5} = 1 2 3 4 5 (brace expansion)
+
+i=1
+while [ "$i" -le 5 ]; do
+    echo "шаг $i"
+    i=$((i + 1))        # $(( )) = арифметика. Внутри можно даже без $: (i + 1)
+done
+#  do ... done — тело цикла (done = "готово")
+#  ☠️ забыл сдвинуть счётчик (i=$((i+1))) → условие вечно истинно → БЕСКОНЕЧНЫЙ цикл,
+#     спасает Ctrl+C. В while ВСЕГДА должно быть что-то, двигающее условие к выходу.</pre>
+      </div>
+
+      <h3>Функции</h3>
+      <p>Функция — своя команда. Объявил рецепт один раз — зовёшь сколько хочешь. В bash <strong>нет процедур</strong>, функции за всё отвечают.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FUNC</span>
+          <span>Аргументы и возврат значения</span>
+        </div>
+        <pre>grade() {
+    if   [ "$1" -lt 50 ]; then echo "2"
+    elif [ "$1" -lt 70 ]; then echo "3"
+    else echo "4"; fi
+}
+
+RESULT=$(grade "$SCORE")    # ловим то, что функция НАПЕЧАТАЛА
+
+#  name() { ...; }  — объявление. Перед } нужны ; и пробел (} — отдельное ключевое слово!)
+#  вызов как команда:  grade 75   — БЕЗ скобок и запятых (это не Python)
+#  $1 $2 ... — аргументы;  $# — сколько их;  $@ — все разом
+#  ВОЗВРАТ:
+#    return N  — только СТАТУС (0 успех / не-0 ошибка), число 0–255, НЕ данные
+#    echo ... + $(...) — так возвращают НАСТОЯЩИЙ результат (число/строку)</pre>
+      </div>
+
+      <h3>read — диалог с пользователем</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">READ</span>
+          <span>Ввод с клавиатуры</span>
+        </div>
+        <pre>read -p "Сколько у тебя баллов? " SCORE
+#  read   — встроенная команда: читает строку с клавиатуры в переменную
+#  -p "…" — prompt, показать вопрос перед вводом
+#  SCORE  — куда положить введённое</pre>
+      </div>
+
+      <h3>Валидация ввода — регулярка <code>[[ =~ ]]</code></h3>
+      <p>Пользователь обязательно введёт «жопа» вместо числа или нажмёт Enter. Одна проверка-регулярка ловит сразу и пустоту, и не-числа.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">VALIDATE</span>
+          <span>Проверка «это число?»</span>
+        </div>
+        <pre>if [[ ! "$SCORE" =~ ^[0-9]+$ ]]; then
+    echo "Это не число!"
+    exit 1
+fi
+#  [[ ]]  — ПРОДВИНУТЫЙ тест (умеет регулярки). Не путать с [ ] (команда test).
+#  =~     — оператор "совпадает с регулярным выражением"
+#  ^[0-9]+$  — регулярка:  ^ начало строки / [0-9] цифра / + одна-или-больше / $ конец
+#             = "ВСЯ строка состоит только из цифр". Пусто и буквы — отсекаются.
+#  !      — отрицание ("если НЕ число")
+#  ⚠️ якоря ^ и $ обязательны: без них "abc5" прошло бы (есть хоть одна цифра).</pre>
+      </div>
+
+      <h3>☠️ Ловушка: ведущий ноль = восьмеричная система</h3>
+      <p>Число с ведущим нулём bash в <strong>арифметике</strong> читает как восьмеричное (octal) — наследие языка C. Это тихо ломает логику или роняет скрипт.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">OCTAL</span>
+          <span>Где рвётся и как чинить</span>
+        </div>
+        <pre>echo $((08))      # КРАШ: "слишком большое значение для основания" (8 нет в octal!)
+echo $((070))     # 56, а не 70 — ТИХОЕ враньё
+echo $((10#070))  # 70 — префикс 10# форсит ДЕСЯТИЧНУЮ систему
+
+# ВАЖНО различать, кто делает octal, а кто нет:
+#   $(( ))  арифметика  → ДЕЛАЕТ octal:   $((08)) краш,  $((010)) = 8
+#   [ ] / test          → читает ДЕСЯТИЧНО: [ 08 -gt 5 ] = ок,  [ 010 -eq 8 ] ложно (010=10)
+
+# Защита: один раз нормализуй ввод сразу после валидации —
+SCORE=$((10#$SCORE))    # дальше во всех $(( )) идёт чистое десятичное число</pre>
+      </div>
+
+      <h3>Цикл-валидатор: <code>while true</code> + break / continue</h3>
+      <p>Чтобы скрипт не падал на кривом вводе, а переспрашивал, пока не введут правильно — оборачиваем чтение в бесконечный цикл, а <code>exit</code> меняем на <code>continue</code>.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">RETRY</span>
+          <span>«Спрашивай, пока не введут верно»</span>
+        </div>
+        <pre>while true; do
+    read -p "Сколько баллов? " SCORE
+
+    if [[ ! "$SCORE" =~ ^[0-9]+$ ]]; then
+        echo "Не число, ещё раз"
+        continue                  # пропустить остаток и вернуться к read
+    fi
+
+    SCORE=$((10#$SCORE))
+
+    if [ "$SCORE" -gt 100 ]; then
+        echo "Больше 100 нельзя, ещё раз"
+        continue
+    fi
+
+    break    # ввод прошёл обе проверки — выходим из цикла
+done
+#  while true — вечный цикл (true — команда, всегда успех); выход только через break
+#  continue   — "начни итерацию заново" (= переспросить)
+#  break      — "выйти из цикла совсем"
+#  Фокус: вместо exit 1 (убить скрипт) ставим continue (дать ещё попытку).</pre>
+      </div>
+
+      <h3>Итог: интерактивный exam.sh целиком</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>exam.sh — всё вместе</span>
+        </div>
+        <pre>#!/bin/bash
+set -euo pipefail
+
+# --- ввод с валидацией: спрашиваем, пока не введут корректный балл ---
+while true; do
+    read -p "Сколько у тебя баллов? " SCORE
+    if [[ ! "$SCORE" =~ ^[0-9]+$ ]]; then
+        echo "Не число, давай ещё раз"
+        continue
+    fi
+    SCORE=$((10#$SCORE))                 # нормализуем (убиваем восьмеричную)
+    if [ "$SCORE" -gt 100 ]; then
+        echo "Балл не может быть больше 100, давай ещё раз"
+        continue
+    fi
+    break
+done
+
+# --- сдал / не сдал ---
+if [ "$SCORE" -ge 50 ]; then
+    echo "Сдал"
+else
+    echo "Пересдача"
+fi
+
+SCORE1=$SCORE     # сохраняем балл: цикл-полоска ниже его обнулит
+
+# --- оценка по диапазонам ---
+grade() {
+    if   [ "$1" -lt 50 ]; then echo "2"
+    elif [ "$1" -lt 70 ]; then echo "3"
+    elif [ "$1" -lt 90 ]; then echo "4"
+    else echo "5"; fi
+}
+
+RESULT=$(grade "$SCORE")
+echo "Твоя оценка: $RESULT"
+
+# --- комментарий по оценке ---
+case "$RESULT" in
+    5) echo "Красавчик" ;;
+    4) echo "Можно лучше" ;;
+    3) echo "Удовлетворительно" ;;
+    *) echo "Пересдача" ;;
+esac
+
+# --- полоска прогресса: одна # на каждые 10 баллов ---
+while [ "$SCORE" -gt 0 ]; do
+    echo -n "#"
+    SCORE=$((SCORE - 10))
+done
+echo                                     # перевод строки после полоски
+
+# --- сколько не хватило до следующей ступени ---
+if   [ "$RESULT" -lt 3 ]; then echo "До тройки не хватило $((50 - SCORE1)) балл(ов)"
+elif [ "$RESULT" -lt 4 ]; then echo "До четвёрки не хватило $((70 - SCORE1)) балл(ов)"
+elif [ "$RESULT" -lt 5 ]; then echo "До пятёрки не хватило $((90 - SCORE1)) балл(ов)"
+elif [ "$SCORE1" -lt 100 ]; then echo "Всего $((100 - SCORE1)) балл(ов) не хватило до 100%"
+else echo "Добро пожаловать в БигТех"
+fi</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> управляющий скелет bash. <code>[ ]</code> — это команда <code>test</code>, отсюда обязательные пробелы внутри и сравнение чисел БУКВАМИ (<code>-eq -lt -gt</code>), а не <code>&gt;</code>/<code>&lt;</code> (это редирект!). <code>if/elif/else</code> для диапазонов — от большего порога к меньшему. <code>case</code>: ветки через <code>;;</code> (двойная!), <code>*)</code> default, <code>esac</code> в конце; диапазоны не умеет. Циклы <code>for</code>/<code>while</code> + <code>do/done</code>, математика только в <code>$(( ))</code>, в <code>while</code> двигай счётчик иначе бесконечность. Функции: <code>name() { …; }</code>, аргументы <code>$1 $2</code>, данные возвращают через <code>echo</code> + <code>$(…)</code>, а <code>return</code> — только статус. Ввод — <code>read -p</code>. Валидация — регулярка <code>[[ "$x" =~ ^[0-9]+$ ]]</code> (ловит пусто и не-числа). Ведущий ноль = восьмеричная в <code>$(( ))</code> → нормализуй через <code>$((10#$x))</code>. Чтобы переспрашивать вместо падения — <code>while true</code> + <code>continue</code>/<code>break</code>.
+      </div>
+
+      <h3>Боевой healthcheck.sh — состояние машины одной командой</h3>
+
+      <div class="note">
+        <strong>⭐ Важно для девопс:</strong> это <strong>главный скрипт каждого девопса</strong>. Зашёл на незнакомую машину — не надо вручную отсматривать <code>free -h</code>, потом <code>df -h</code>, потом <code>top</code> и в голове сводить три разных вывода. Один <code>./healthcheck.sh</code> — и всё состояние (память, диск, CPU) в одной ровной таблице, в едином языке «занято %», с цветовым светофором. Кидаешь файл на любой сервер, запускаешь — и за секунду видишь, где жопа. Дальше прикручивается в <code>cron</code> + алерт.
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>healthcheck.sh — память + диск + CPU в одной таблице</span>
+        </div>
+        <pre>#!/bin/bash
+set -euo pipefail
+
+# Единые пороги занятости (%) для ВСЕХ метрик
+WARN_PCT=75   # жёлтая зона
+CRIT_PCT=90   # красная зона
+
+# Цвета: $'...' раскрывает \033 в реальный ANSI-байт сразу при присвоении
+RED=$'\033[31m'; YEL=$'\033[33m'; GRN=$'\033[32m'; RST=$'\033[0m'
+
+# DRY: одна функция статуса на все метрики. Вход — занятый %, выход — слово.
+status_for() {
+    local pct=$1
+    if   (( pct &gt; CRIT_PCT )); then echo "ОПАСНО"
+    elif (( pct &gt; WARN_PCT )); then echo "ВНИМАНИЕ"
+    else                            echo "ХОРОШО"
+    fi
+}
+
+check_mem() {
+    local total avail used_pct used_gb total_gb status
+    total=$(awk '/MemTotal/     {print $2}' /proc/meminfo)
+    avail=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+    used_pct=$(( (total - avail) * 100 / total ))   # ЗАНЯТО = (всего-доступно)/всего
+    used_gb=$(( (total - avail) / 1048576 ))         # kB -> GB (1024*1024)
+    total_gb=$(( total / 1048576 ))
+    status=$(status_for "$used_pct")
+    printf "Память|%s%%|%s|%sG из %sG\n" "$used_pct" "$status" "$used_gb" "$total_gb"
+}
+
+check_disk() {
+    local used_pct used_gb total_gb status
+    # -BG = размеры сразу в гигабайтах (надёжнее -h, где единицы плавают M/G/T)
+    used_pct=$(df -BG / | awk 'NR==2 {print $5}' | tr -d '%')
+    used_gb=$(df -BG /  | awk 'NR==2 {print $3}' | tr -d 'G')
+    total_gb=$(df -BG / | awk 'NR==2 {print $2}' | tr -d 'G')
+    status=$(status_for "$used_pct")
+    printf "Диск /|%s%%|%s|%sG из %sG\n" "$used_pct" "$status" "$used_gb" "$total_gb"
+}
+
+check_cpu() {
+    local cores load used_pct status
+    cores=$(nproc)                                   # число ядер
+    load=$(awk '{print $1}' /proc/loadavg)           # нагрузка за 1 мин (ДРОБНОЕ!)
+    # load дробный -> bash-арифметика не умеет, считаем в awk, %d округляет до целого
+    used_pct=$(awk -v c="$cores" '{printf "%d", $1*100/c}' /proc/loadavg)
+    status=$(status_for "$used_pct")
+    printf "CPU|%s%%|%s|load %s на %s ядер\n" "$used_pct" "$status" "$load" "$cores"
+}
+
+# column выравнивает по ГОЛОМУ тексту, и только ПОТОМ sed красит слова-статусы
+# -> ANSI-коды не ломают ширину колонок (главный трюк с цветом в таблице).
+{
+    echo "МЕТРИКА|ЗАНЯТО|СТАТУС|ДЕТАЛИ"
+    check_mem
+    check_disk
+    check_cpu
+} | column -t -s '|' \
+  | sed -e "s/ОПАСНО/${RED}ОПАСНО${RST}/" \
+        -e "s/ВНИМАНИЕ/${YEL}ВНИМАНИЕ${RST}/" \
+        -e "s/ХОРОШО/${GRN}ХОРОШО${RST}/"</pre>
+      </div>
+
+      <div class="note">
+        <strong>Приёмы и грабли (новое в этом скрипте):</strong>
+        <br>• <strong>Источники правды:</strong> <code>/proc/meminfo</code> (память, чистые kB), <code>df -BG /</code> (диск), <code>/proc/loadavg</code> + <code>nproc</code> (CPU). <code>/proc</code> — это не файлы, а кишки ядра, отданные текстом.
+        <br>• <strong>Единый язык «занято %»:</strong> одна колонка = одна метрика во всех строках. Память даёт <em>свободно</em> (<code>MemAvailable</code>) → переворачиваем в занято: <code>(всего-доступно)*100/всего</code>. Иначе таблица врёт читателю.
+        <br>• <strong>💀 Целочисленная арифметика:</strong> <code>$(( ))</code> умеет только целые. Умножай ДО деления (<code>avail*100/total</code>, не <code>avail/total*100</code> — иначе всегда 0). Дробное (loadavg <code>0.25</code>) считай в <code>awk</code> — ему на float плевать.
+        <br>• <strong><code>(( ))</code> vs <code>[ ]</code>:</strong> для чисел — арифметический <code>(( a &gt; b ))</code> (по-человечески, без <code>-gt</code> и без <code>$</code>). <code>[ ]</code>/<code>[[ ]]</code> — для строк и файлов.
+        <br>• <strong><code>awk</code> = grep + пинцет:</strong> <code>/паттерн/ {action}</code>. <code>$2</code> — 2-я колонка, <code>$NF</code> — последняя, <code>NR==2</code> — только 2-я строка (пропустить шапку <code>df</code>). grep перед awk не нужен — паттерн уже фильтрует.
+        <br>• <strong><code>tr -d '%'</code> / <code>tr -d 'G'</code>:</strong> срезать прилипший символ, иначе <code>"44%"</code> не число и арифметика падает. <code>df -BG</code> (а не <code>-h</code>) фиксирует единицы в гигах, чтобы <code>tr -d 'G'</code> не промахнулся.
+        <br>• <strong>Таблица без рисования рамок:</strong> <code>printf "a|b|c\n"</code> + <code>column -t -s '|'</code> сам выравнивает колонки. Рамки из символов руками не рисуют — это понты, которые съезжают.
+        <br>• <strong>🪄 Цвет + column:</strong> ANSI-коды ломают выравнивание <code>column</code> (он считает их за символы). Лечится порядком: сперва <code>column</code> по голому тексту, ПОТОМ <code>sed</code> красит готовую таблицу.
+        <br>• <strong>Гигиена функций:</strong> <code>local</code> для всех переменных внутри — иначе они глобальные и функции затирают друг другу <code>proc</code>/<code>status</code>. Функция должна быть автономным «чемоданом с ручкой».
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="К началу текущей темы (заголовка)">
+      <span class="fab-icon">↑</span><span class="fab-label">К началу темы</span>
+    </button>
+    <button class="fab" id="fabTop" title="В самый верх страницы">
+      <span class="fab-icon">⇈</span><span class="fab-label">В самый верх</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>
