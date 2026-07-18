@@ -196,18 +196,38 @@
   });
   stack.classList.add('hidden');
 
-  // ✈️ полный самолётный вылет: туда с дымом, разворот, обратно, посадка
-  async function planeFlight(btn) {
+  // ✈️ полёт самолётика. depart: true — улететь «сквозь» страницу
+  // (без возврата; продолжение рейса играет уже следующая страница)
+  const planeTarget = () => ({ x: -window.innerWidth * 0.62, y: -window.innerHeight * 0.6 });
+
+  async function planeFlight(btn, { depart } = {}) {
     const { icon, ghost } = makeGhost(btn);
-    const W = window.innerWidth, H = window.innerHeight;
-    const T = { x: -W * 0.62, y: -H * 0.6 };   // верхний левый край экрана
+    const T = planeTarget();
     await flyLeg(ghost, {
       p0: { x: 0, y: 0 },
       c1: { x: T.x * 0.35, y: T.y * 0.08 },
       c2: { x: T.x * 0.75, y: T.y * 0.55 },
       p3: T
     }, { duration: 1300, facing: 'plane-left', smoke: true });
+    if (depart) { ghost.remove(); return; }       // ушёл за горизонт — до встречи там
     await new Promise(r => setTimeout(r, 200));   // разворот носом обратно
+    await flyLeg(ghost, {
+      p0: T,
+      c1: { x: T.x * 0.75, y: T.y * 0.9 },
+      c2: { x: T.x * 0.3, y: T.y * 0.25 },
+      p3: { x: 0, y: 0 }
+    }, { duration: 1200, facing: 'plane-right', smoke: true });
+    ghost.remove();
+    icon.style.visibility = '';
+    btn.classList.add('landed');
+    setTimeout(() => btn.classList.remove('landed'), 500);
+  }
+
+  // прилёт на новую страницу: появляется в той же точке неба и садится на кнопку
+  async function planeArrival(btn) {
+    const { icon, ghost } = makeGhost(btn);
+    const T = planeTarget();
+    ghost.style.transform = `translate(${T.x}px, ${T.y}px)`;
     await flyLeg(ghost, {
       p0: T,
       c1: { x: T.x * 0.75, y: T.y * 0.9 },
@@ -246,10 +266,23 @@
         content.scrollTo({ top: 0 });
         await planeFlight(fabHome);
       } else {
-        await planeFlight(fabHome);
-        await new Promise(r => setTimeout(r, 250));
+        // улетаем «сквозь страницы»: вылет здесь, посадка — на первой странице
+        await planeFlight(fabHome, { depart: true });
+        sessionStorage.setItem('plane-arrival', '1');
         location.href = FIRST + '.html';
       }
     } finally { flying = false; }
   });
+
+  // если самолёт вылетел с прошлой страницы — здесь он заходит на посадку
+  if (sessionStorage.getItem('plane-arrival')) {
+    sessionStorage.removeItem('plane-arrival');
+    if (!reduceMotion) {
+      flying = true;
+      stack.classList.remove('hidden');   // жёрдочка видна, экипаж ждёт посадки
+      setTimeout(async () => {
+        try { await planeArrival(fabHome); } finally { flying = false; }
+      }, 300);
+    }
+  }
 })();
