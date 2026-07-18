@@ -122,12 +122,16 @@
         const p = cubicAt(leg.p0, leg.c1, leg.c2, leg.p3, e);
         const heading = Math.atan2(p.dy, p.dx) * 180 / Math.PI;
         let tf;
-        if (opts.facing === 'left') {          // нос влево, лёгкий тангаж по касательной
+        if (opts.facing === 'left') {                 // птица: нос влево, тангаж по касательной
           tf = `rotate(${clampDeg(normDeg(heading - 180), 35)}deg)`;
-        } else if (opts.facing === 'right') {  // разворот зеркалом, тангаж в зеркале
+        } else if (opts.facing === 'right') {         // птица зеркалом: нос вправо
           tf = `scaleX(-1) rotate(${-clampDeg(normDeg(heading), 35)}deg)`;
-        } else {                               // самолёт: зеркалим (нос был на 45°) → нос ~135°
-          tf = `scaleX(-1) rotate(${-clampDeg(normDeg(heading - 135), 50)}deg)`;
+        } else if (opts.facing === 'plane-left') {
+          // спрайт ✈️ смотрит на 45° вверх-вправо; в зеркале нос на -135° (вверх-влево).
+          // визуальный курс = -135 - r  =>  r = -135 - heading
+          tf = `scaleX(-1) rotate(${clampDeg(normDeg(-135 - heading), 55)}deg)`;
+        } else {                                      // plane-right: без зеркала, нос = -45 + r
+          tf = `rotate(${clampDeg(normDeg(heading + 45), 55)}deg)`;
         }
         ghost.style.transform = `translate(${p.x}px, ${p.y}px) ${tf}`;
         if (opts.fade) ghost.style.opacity = String(Math.max(0, 1 - Math.max(0, t - 0.6) / 0.4));
@@ -217,16 +221,28 @@
     }
     if (reduceMotion || flying) { location.href = FIRST + '.html'; return; }
     flying = true;
-    const { ghost } = makeGhost(fabHome);
+    const { icon, ghost } = makeGhost(fabHome);
     const W = window.innerWidth, H = window.innerHeight;
-    // разгон влево по прямой, затем плавный набор высоты — и за горизонт
+    const T = { x: -W * 0.62, y: -H * 0.6 };   // верхний левый край экрана
+    // туда: носом вперёд по плавной диагонали, с дымком
     await flyLeg(ghost, {
       p0: { x: 0, y: 0 },
-      c1: { x: -W * 0.28, y: -H * 0.02 },
-      c2: { x: -W * 0.55, y: -H * 0.38 },
-      p3: { x: -W * 0.95, y: -H * 0.9 }
-    }, { duration: 1000, facing: 'plane', smoke: true, fade: true,
-         easing: t => t * t * (3 - 2 * t) });
+      c1: { x: T.x * 0.35, y: T.y * 0.08 },
+      c2: { x: T.x * 0.75, y: T.y * 0.55 },
+      p3: T
+    }, { duration: 1300, facing: 'plane-left', smoke: true });
+    await new Promise(r => setTimeout(r, 200));   // разворот носом обратно
+    // назад: другой дугой, тоже с дымком, посадка на кнопку
+    await flyLeg(ghost, {
+      p0: T,
+      c1: { x: T.x * 0.75, y: T.y * 0.9 },
+      c2: { x: T.x * 0.3, y: T.y * 0.25 },
+      p3: { x: 0, y: 0 }
+    }, { duration: 1200, facing: 'plane-right', smoke: true });
+    ghost.remove();
+    icon.style.visibility = '';
+    fabHome.classList.add('landed');
+    await new Promise(r => setTimeout(r, 350));
     location.href = FIRST + '.html';
   });
 })();
