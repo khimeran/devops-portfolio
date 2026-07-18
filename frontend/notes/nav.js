@@ -196,35 +196,11 @@
   });
   stack.classList.add('hidden');
 
-  // 🐦 птичка: в начало ТЕКУЩЕГО раздела
-  fabSection.addEventListener('click', async () => {
-    content.scrollTo({ top: 0 });
-    if (reduceMotion || flying) return;
-    flying = true;
-    const cr = content.getBoundingClientRect();
-    await birdFlight(fabSection, { x: cr.left + 80, y: cr.top + 55 });
-    flying = false;
-  });
-
-  // ✈️ самолётик: в самое-самое начало — первая страница конспектов
-  const FIRST = NOTES_MANIFEST[0].id;
-  fabHome.addEventListener('click', async () => {
-    if (PAGE === FIRST) {
-      content.scrollTo({ top: 0 });
-      if (!reduceMotion && !flying) {
-        flying = true;
-        const cr = content.getBoundingClientRect();
-        await birdFlight(fabHome, { x: cr.left + 80, y: cr.top + 55 });
-        flying = false;
-      }
-      return;
-    }
-    if (reduceMotion || flying) { location.href = FIRST + '.html'; return; }
-    flying = true;
-    const { icon, ghost } = makeGhost(fabHome);
+  // ✈️ полный самолётный вылет: туда с дымом, разворот, обратно, посадка
+  async function planeFlight(btn) {
+    const { icon, ghost } = makeGhost(btn);
     const W = window.innerWidth, H = window.innerHeight;
     const T = { x: -W * 0.62, y: -H * 0.6 };   // верхний левый край экрана
-    // туда: носом вперёд по плавной диагонали, с дымком
     await flyLeg(ghost, {
       p0: { x: 0, y: 0 },
       c1: { x: T.x * 0.35, y: T.y * 0.08 },
@@ -232,7 +208,6 @@
       p3: T
     }, { duration: 1300, facing: 'plane-left', smoke: true });
     await new Promise(r => setTimeout(r, 200));   // разворот носом обратно
-    // назад: другой дугой, тоже с дымком, посадка на кнопку
     await flyLeg(ghost, {
       p0: T,
       c1: { x: T.x * 0.75, y: T.y * 0.9 },
@@ -241,8 +216,40 @@
     }, { duration: 1200, facing: 'plane-right', smoke: true });
     ghost.remove();
     icon.style.visibility = '';
-    fabHome.classList.add('landed');
-    await new Promise(r => setTimeout(r, 350));
-    location.href = FIRST + '.html';
+    btn.classList.add('landed');
+    setTimeout(() => btn.classList.remove('landed'), 500);
+  }
+
+  // 🐦 птичка: в начало ТЕКУЩЕГО раздела
+  fabSection.addEventListener('click', async () => {
+    content.scrollTo({ top: 0 });
+    if (reduceMotion || flying) return;
+    flying = true;
+    try {
+      const cr = content.getBoundingClientRect();
+      await birdFlight(fabSection, { x: cr.left + 80, y: cr.top + 55 });
+    } finally { flying = false; }
+  });
+
+  // ✈️ самолётик: в самое-самое начало — первая страница конспектов
+  const FIRST = NOTES_MANIFEST[0].id;
+  fabHome.addEventListener('click', async () => {
+    if (reduceMotion || flying) {
+      if (PAGE === FIRST) content.scrollTo({ top: 0 });
+      else location.href = FIRST + '.html';
+      return;
+    }
+    flying = true;
+    try {
+      if (PAGE === FIRST) {
+        // уже в начале: полётное шоу + прокрутка наверх, без перехода
+        content.scrollTo({ top: 0 });
+        await planeFlight(fabHome);
+      } else {
+        await planeFlight(fabHome);
+        await new Promise(r => setTimeout(r, 250));
+        location.href = FIRST + '.html';
+      }
+    } finally { flying = false; }
   });
 })();
