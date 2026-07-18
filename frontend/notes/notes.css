@@ -223,3 +223,19 @@
       55%  { transform: translateY(3px) scale(0.9); }
       100% { transform: none; }
     }
+
+    /* дымный след самолётика */
+    .smoke-puff {
+      position: fixed;
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: #8b949e;
+      filter: blur(2px);
+      opacity: 0.5;
+      pointer-events: none;
+      z-index: 98;
+      animation: smoke-fade 0.85s ease-out forwards;
+    }
+    @keyframes smoke-fade {
+      to { transform: translate(10px, 6px) scale(2.6); opacity: 0; }
+    }

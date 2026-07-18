@@ -968,38 +968,74 @@
     (function () {
       const btn = document.getElementById('fabTop');
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let flying = false;
       window.addEventListener('scroll', () => {
         btn.classList.toggle('hidden', window.scrollY < 350);
       });
-      btn.addEventListener('click', () => {
+
+      function cubicAt(p0, c1, c2, p3, t) {
+        const u = 1 - t;
+        return {
+          x: u*u*u*p0.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*p3.x,
+          y: u*u*u*p0.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*p3.y,
+          dx: 3*u*u*(c1.x-p0.x) + 6*u*t*(c2.x-c1.x) + 3*t*t*(p3.x-c2.x),
+          dy: 3*u*u*(c1.y-p0.y) + 6*u*t*(c2.y-c1.y) + 3*t*t*(p3.y-c2.y)
+        };
+      }
+      const easeIO = t => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+      const normDeg = a => ((a + 540) % 360) - 180;
+      const clampDeg = (a, m) => Math.max(-m, Math.min(m, a));
+
+      function flyLeg(ghost, leg, opts) {
+        return new Promise(resolve => {
+          const t0 = performance.now();
+          function frame(now) {
+            let t = Math.min(1, (now - t0) / opts.duration);
+            const p = cubicAt(leg.p0, leg.c1, leg.c2, leg.p3, easeIO(t));
+            const heading = Math.atan2(p.dy, p.dx) * 180 / Math.PI;
+            const tf = opts.facing === 'left'
+              ? `rotate(${clampDeg(normDeg(heading - 180), 35)}deg)`
+              : `scaleX(-1) rotate(${-clampDeg(normDeg(heading), 35)}deg)`;
+            ghost.style.transform = `translate(${p.x}px, ${p.y}px) ${tf}`;
+            if (t < 1) requestAnimationFrame(frame); else resolve();
+          }
+          requestAnimationFrame(frame);
+        });
+      }
+
+      btn.addEventListener('click', async () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        if (reduceMotion) return;
+        if (reduceMotion || flying) return;
+        flying = true;
         const icon = btn.querySelector('.fab-icon');
         const r = icon.getBoundingClientRect();
         const ghost = icon.cloneNode(true);
         Object.assign(ghost.style, {
           position: 'fixed', left: r.left + 'px', top: r.top + 'px',
-          margin: 0, zIndex: 99, pointerEvents: 'none', fontSize: '1.35rem'
+          margin: 0, zIndex: 99, pointerEvents: 'none', fontSize: '1.35rem',
+          willChange: 'transform'
         });
         document.body.appendChild(ghost);
         icon.style.visibility = 'hidden';
-        const tx = 90 - r.left, ty = 60 - r.top;
-        const anim = ghost.animate([
-          { transform: 'translate(0,0) rotate(0deg)', offset: 0 },
-          { transform: `translate(${tx * 0.22}px, ${ty * 0.65}px) rotate(-24deg)`, offset: 0.18 },
-          { transform: `translate(${tx * 0.62}px, ${ty * 1.18}px) rotate(10deg)`, offset: 0.38 },
-          { transform: `translate(${tx}px, ${ty}px) rotate(-8deg)`, offset: 0.52 },
-          { transform: `translate(${tx}px, ${ty}px) scaleX(-1) rotate(0deg)`, offset: 0.60 },
-          { transform: `translate(${tx * 0.45}px, ${ty * 0.45 - 70}px) scaleX(-1) rotate(14deg)`, offset: 0.80 },
-          { transform: 'translate(0,0) scaleX(-1) rotate(0deg)', offset: 0.95 },
-          { transform: 'translate(0,0) scaleX(1) rotate(0deg)', offset: 1 }
-        ], { duration: 2000, easing: 'ease-in-out' });
-        anim.onfinish = () => {
-          ghost.remove();
-          icon.style.visibility = '';
-          btn.classList.add('landed');
-          setTimeout(() => btn.classList.remove('landed'), 500);
-        };
+        const T = { x: 90 - r.left, y: 60 - r.top };
+        await flyLeg(ghost, {
+          p0: { x: 0, y: 0 },
+          c1: { x: T.x * 0.12, y: -90 },
+          c2: { x: T.x * 0.55, y: T.y * 1.12 },
+          p3: T
+        }, { duration: 1150, facing: 'left' });
+        await new Promise(res => setTimeout(res, 130));
+        await flyLeg(ghost, {
+          p0: T,
+          c1: { x: T.x * 0.55, y: T.y * 0.35 - 70 },
+          c2: { x: T.x * 0.12, y: -80 },
+          p3: { x: 0, y: 0 }
+        }, { duration: 1050, facing: 'right' });
+        ghost.remove();
+        icon.style.visibility = '';
+        btn.classList.add('landed');
+        setTimeout(() => btn.classList.remove('landed'), 500);
+        flying = false;
       });
     })();
   </script>
