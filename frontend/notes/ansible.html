@@ -180,32 +180,48 @@ ansible all -m ping -vvv -i hosts     # подробный вывод (-vvv)
       <h2 id="ansible-s5">Установка агента на сервер — правильно</h2>
       <p>Задача, которая на проде встречается чаще всех остальных: раскатать на весь парк агента — мониторинга (node_exporter, zabbix-agent2), сбора логов (promtail, filebeat), конфиг-менеджмента (puppet-agent), бэкапа. Выглядит как «скачай и запусти», но именно здесь ломают идемпотентность и получают парк из машин-снежинок.</p>
 
-      <div class="code-block">
-        <div class="code-header">
-          <span class="lang">АНТИПАТТЕРНЫ</span>
-          <span>Как НЕ надо — и что именно тут ломается</span>
-        </div>
-        <pre>⛔ - name: Поставить агента
-     shell: curl -sL https://example.com/install.sh | bash
-   Что не так:
-     - НЕ идемпотентно: выполняется КАЖДЫЙ прогон, всегда changed
-     - неизвестно, что скрипт сделал: версия, пути, юнит — сюрприз
-     - нечего откатывать и нечем проверить
-     - сеть недоступна → падение всего playbook
-
-⛔ - name: Скачать бинарь
-     get_url: { url: "...", dest: /usr/local/bin/agent }
-     # без checksum — приедет что угодно, включая обрезанный файл
-
-⛔ - name: Запустить
-     shell: nohup /usr/local/bin/agent &amp;
-   # переживёт ровно до первого ребута. Сервисом должен управлять systemd.
-
-⛔ Установка "latest" без фиксации версии
-   # завтра на 300 машинах разные версии → «у нас метрика пропала, но не у всех»
-
-⛔ Забыли enabled: true
-   # сервер перезагрузили — агент не поднялся. Классика.</pre>
+      <div class="table-wrap">
+        <div class="table-title">Антипаттерны установки агента — что именно ломается</div>
+        <table class="cmp">
+          <thead><tr><th>Как делают</th><th>Что ломается</th><th>Как надо</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>shell: curl … | bash</code></td>
+              <td>Не идемпотентно — выполняется каждый прогон, всегда <code>changed</code>. Что скрипт сделал внутри, никто не знает. Нечего откатывать и нечем проверить</td>
+              <td>Пакет из репозитория вендора или <code>unarchive</code> с <code>creates</code></td>
+            </tr>
+            <tr>
+              <td><code>get_url</code> без <code>checksum</code></td>
+              <td>Приедет что угодно: обрезанный файл, страница ошибки прокси, подменённый бинарь</td>
+              <td>Всегда указывать <code>checksum: sha256:…</code> с сайта релиза</td>
+            </tr>
+            <tr>
+              <td><code>shell: nohup /usr/local/bin/agent &amp;</code></td>
+              <td>Переживёт ровно до первого ребута. Никакого автозапуска, рестарта и логов</td>
+              <td>systemd-юнит из <code>template</code> + <code>service: enabled=true</code></td>
+            </tr>
+            <tr>
+              <td>Версия <code>latest</code></td>
+              <td>Завтра на 300 машинах разные версии → «метрика пропала, но не у всех»</td>
+              <td>Версия — переменная роли, обновление = коммит в git</td>
+            </tr>
+            <tr>
+              <td>Забыли <code>enabled: true</code></td>
+              <td>Сервер перезагрузили — агент не поднялся. Классика</td>
+              <td><code>state: started</code> <strong>и</strong> <code>enabled: true</code></td>
+            </tr>
+            <tr>
+              <td>Агент слушает <code>0.0.0.0</code> без firewall</td>
+              <td>Метрики (а иногда и API) торчат наружу для всех желающих</td>
+              <td>Rich-rule только для источников, которым порт нужен</td>
+            </tr>
+            <tr>
+              <td>Нет проверки в конце</td>
+              <td>«Вроде поставили»: сервис активен, но метрика не отдаётся</td>
+              <td><code>wait_for</code> порт + <code>uri</code> на <code>/metrics</code> с <code>failed_when</code></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="code-block">
@@ -427,7 +443,7 @@ ansible all -i inventory/prod -m uri \
       </div>
 
       <div class="note">
-        <strong>Отдельный случай — установка Puppet-агента через Ansible.</strong> Очень частая прод-схема: Ansible один раз ставит и регистрирует агента (репозиторий, <code>csr_attributes.yaml</code> с ролью ноды, первый прогон с <code>--waitforcert</code>), дальше машину держит уже Puppet. Полный playbook разобран в разделе <a href="iac.html#iac-s11" style="color:#58a6ff;">IaC → Ansible + Puppet</a>.
+        <strong>Отдельный случай — установка Puppet-агента через Ansible.</strong> Очень частая прод-схема: Ansible один раз ставит и регистрирует агента (репозиторий, <code>csr_attributes.yaml</code> с ролью ноды, первый прогон с <code>--waitforcert</code>), дальше машину держит уже Puppet. Полный playbook разобран в разделе <a href="iac.html#iac-s1" style="color:#58a6ff;">IaC → Ansible + Puppet</a>.
       </div>
 
       <h2 id="ansible-s6">Puppet — тот же конфиг-менеджмент, но с агентами</h2>
@@ -481,7 +497,7 @@ file { '/etc/nginx/nginx.conf':
       </div>
 
       <div class="note">
-        📖 <strong>Полный разбор Puppet</strong> — архитектура и цикл агента, control-repo и r10k, классы и модули, шаблоны <code>.epp</code>, Roles &amp; Profiles, Hiera и правила для одной ноды против глобальных, боевые примеры (пользователи, приветственная страница, мониторинг с алертингом, деплой приложения) и разведка на чужом проде — в разделе <a href="iac.html#iac-s12" style="color:#58a6ff;">IaC → Puppet</a>.
+        📖 <strong>Полный разбор Puppet</strong> — архитектура и цикл агента, control-repo и r10k, классы и модули, шаблоны <code>.epp</code>, Roles &amp; Profiles, Hiera и правила для одной ноды против глобальных, боевые примеры (пользователи, приветственная страница, мониторинг с алертингом, деплой приложения) и разведка на чужом проде — в разделе <a href="iac.html#iac-s2" style="color:#58a6ff;">IaC → Puppet</a>.
       </div>
     </section>
 

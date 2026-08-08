@@ -23,56 +23,52 @@
       <p>«Инфраструктура как код» — описание серверов, сетей, балансировщиков и баз в виде <strong>текстовых файлов в git</strong>, вместо кликов в админке. Любое изменение прода — это PR с ревью. Главная цель — <strong>повторяемость</strong>: один набор файлов разворачивается одинаково в dev, staging, prod.</p>
       <p>Раздел состоит из трёх подразделов: <strong>Terraform</strong> (создать инфраструктуру), <strong>Ansible</strong> (настроить её push-моделью) и <strong>Puppet</strong> (держать её в заданном состоянии pull-моделью, с агентами).</p>
 
-      <h2 id="iac-s0">Три инструмента: кто за что отвечает</h2>
-      <p>Их постоянно путают и пытаются сравнивать «кто лучше». На проде они живут <strong>слоями</strong> и делают разную работу.</p>
+      <h3>Кто за что отвечает: четыре слоя</h3>
+      <p>Их постоянно путают и пытаются сравнивать «кто лучше». На проде они живут <strong>слоями</strong> и делают разную работу — от «машины ещё нет» до «катим релиз».</p>
 
-      <div class="code-block">
-        <div class="code-header">
-          <span class="lang">СЛОИ</span>
-          <span>Кто на каком этапе жизни сервера</span>
-        </div>
-        <pre>СЛОЙ 1 — PROVISIONING (чего ещё нет)          → Terraform
-   создать VM, диск, сеть, security group, DNS-запись, managed-БД,
-   S3-бакет, балансировщик. Работает через API облака.
-
-СЛОЙ 2 — BOOTSTRAP (первое касание живой машины) → cloud-init / Ansible
-   поставить агента, положить ключи, зарегистрировать ноду,
-   подписать сертификат. Один раз в жизни сервера.
-
-СЛОЙ 3 — CONFIGURATION (то, что уже есть)     → Ansible ИЛИ Puppet
-   пакеты, пользователи, конфиги, сервисы, приложения.
-   Ansible — push: пришёл по SSH, сделал, ушёл.
-   Puppet  — pull: агент сам каждые 30 мин приводит машину к манифесту.
-
-СЛОЙ 4 — ДЕПЛОЙ ПРИЛОЖЕНИЯ                     → CI/CD (Actions/Jenkins)
-   выкатка новой версии кода поверх настроенной машины.</pre>
-      </div>
-
-      <div class="code-block">
-        <div class="code-header">
-          <span class="lang">СРАВНЕНИЕ</span>
-          <span>Terraform vs Ansible vs Puppet — одной таблицей</span>
-        </div>
-        <pre>                    Terraform        Ansible            Puppet
-Что делает         создаёт ресурсы  настраивает ОС     настраивает ОС
-Модель             API облака       PUSH по SSH        PULL агентом
-Агент на сервере   не нужен         не нужен           нужен (демон)
-Центральный сервер не нужен*        не нужен           нужен (puppetserver)
-Язык               HCL (.tf)        YAML (.yml)        Puppet DSL (.pp)
-Помнит состояние   да, tfstate      нет                да, каталог + PuppetDB
-Когда применяется  когда запустил   когда запустил     каждые 30 мин сам
-Дрейф конфигурации не лечит         лечит при запуске  лечит сам, всегда
-Порог входа        средний          низкий             высокий
-Где чаще встретишь облака, k8s      всё подряд         банки, телеком, 1000+ VM
-
-* state всё равно хранят централизованно (S3 + lock).</pre>
+      <div class="table-wrap">
+        <div class="table-title">Жизнь сервера по слоям — кто на каком этапе</div>
+        <table class="cmp">
+          <thead>
+            <tr><th>Слой</th><th>Инструмент</th><th>Что делает</th><th>Как часто</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1 · Provisioning</td>
+              <td><strong>Terraform</strong></td>
+              <td>Создаёт то, чего ещё нет: VM, диски, сети, security group, DNS, managed-БД, балансировщик. Работает через API облака.</td>
+              <td>При изменении инфраструктуры</td>
+            </tr>
+            <tr>
+              <td>2 · Bootstrap</td>
+              <td>cloud-init / Ansible</td>
+              <td>Первое касание живой машины: поставить агента, положить ключи, зарегистрировать ноду, подписать сертификат.</td>
+              <td>Один раз в жизни сервера</td>
+            </tr>
+            <tr>
+              <td>3 · Configuration</td>
+              <td><strong>Ansible</strong> или <strong>Puppet</strong></td>
+              <td>Пакеты, пользователи, конфиги, сервисы, приложения. Ansible — push по SSH. Puppet — pull агентом.</td>
+              <td>Ansible: когда запустил.<br>Puppet: каждые 30 мин сам</td>
+            </tr>
+            <tr>
+              <td>4 · Деплой кода</td>
+              <td>CI/CD (Actions, Jenkins)</td>
+              <td>Выкатка новой версии приложения поверх уже настроенной машины.</td>
+              <td>Каждый релиз</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="note">
-        <strong>Как отвечать на собесе:</strong> «Terraform создаёт то, чего ещё нет, и помнит это в state. Ansible и Puppet приводят уже существующие машины к описанному состоянию — разница в модели доставки: push по SSH против pull агентом. На проде обычно связка: Terraform поднял VM → cloud-init поставил агента → Puppet/Ansible держит конфигурацию → CI/CD катает релизы приложения.»
+        <strong>Одной фразой:</strong> Terraform создаёт то, чего ещё нет, и помнит это в state. Ansible и Puppet приводят уже существующие машины к описанному состоянию — разница только в модели доставки: push по SSH против pull агентом. Подробное сравнение и ответ «что выбрать» — в <a href="#iac-s3" style="color:#58a6ff;">итоге раздела</a>.
       </div>
 
-      <h2 id="iac-s1">Terraform — жизненный цикл</h2>
+      <h2 id="iac-s0">🌍 Terraform — создаём инфраструктуру</h2>
+      <p>Terraform отвечает за <strong>слой 1</strong>: создать то, чего ещё нет. Виртуалки, сети, диски, балансировщики, DNS, managed-базы — через API облака. Настройкой операционной системы внутри машины он не занимается.</p>
+
+      <h3>Жизненный цикл</h3>
       <p>HashiCorp, написан на Go в 2014-м. Multi-cloud — один синтаксис работает в AWS, GCP, Azure, Yandex Cloud, локальном Docker'е. С 2023-го у HashiCorp поменялась лицензия (BSL), сообщество форкнуло в <strong>OpenTofu</strong> — полностью совместимый, более «свободный». Синтаксис идентичный, команда <code>tofu</code> вместо <code>terraform</code>.</p>
 
       <div class="code-block">
@@ -116,7 +112,7 @@ terraform fmt       # причесать форматирование (в CI: fm
 terraform validate  # проверить синтаксис без обращения к облаку</pre>
       </div>
 
-      <h2 id="iac-s2">Terraform — HCL: ресурсы, ссылки, интерполяция</h2>
+      <h3>HCL: ресурсы, ссылки, интерполяция</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -185,7 +181,7 @@ image = docker_image.nginx.image_id
 # Это как f-strings в Python: f"http://localhost:{port}"</pre>
       </div>
 
-      <h2 id="iac-s3">Terraform — state, главная концепция</h2>
+      <h3>State — главная концепция</h3>
       <p><code>terraform.tfstate</code> — JSON-файл, в котором terraform <strong>запомнил</strong>, какие реальные ресурсы создал и какие у них ID в облаке. При каждом <code>plan</code> terraform сравнивает три вещи:</p>
 
       <div class="code-block">
@@ -230,28 +226,22 @@ terraform state mv docker_container.web docker_container.frontend
    # переименовать ресурс БЕЗ пересоздания (иначе -/+ destroy and recreate)</pre>
       </div>
 
-      <div class="code-block">
-        <div class="code-header">
-          <span class="lang">SYMBOLS</span>
-          <span>Как читать plan — что значит каждый символ</span>
-        </div>
-        <pre>+ create                    создать новый ресурс
-- destroy                   удалить
-~ update in-place           поменять атрибут БЕЗ пересоздания
--/+ destroy and recreate    ⚠️ снести и создать заново
-                              (когда атрибут "forces replacement")
-
-# forces replacement — в комментарии плана:
-~ external = 8090 -> 8091 # forces replacement
-
-# На проде "forces replacement" на БД = потеря данных!
-# ВСЕГДА читай plan, особенно ищи знак "-" там, где не ждёшь.
-
-# Идемпотентность: повторный apply без изменений →
-Apply complete! Resources: 0 added, 0 changed, 0 destroyed.</pre>
+      <div class="table-wrap">
+        <div class="table-title">Как читать plan — символы и что они значат</div>
+        <table class="cmp">
+          <thead><tr><th>Символ</th><th>Действие</th><th>Опасность</th></tr></thead>
+          <tbody>
+            <tr><td><code>+</code> create</td><td>Создать новый ресурс</td><td class="yes">Безопасно</td></tr>
+            <tr><td><code>~</code> update in-place</td><td>Поменять атрибут без пересоздания</td><td class="yes">Обычно безопасно</td></tr>
+            <tr><td><code>-</code> destroy</td><td>Удалить ресурс</td><td class="no">⚠️ Искать глазами всегда</td></tr>
+            <tr><td><code>-/+</code> replace</td><td>Снести и создать заново (атрибут «forces replacement»)</td><td class="no">⚠️⚠️ На БД = потеря данных</td></tr>
+            <tr><td><code>&lt;=</code> read</td><td>Прочитать data source</td><td class="yes">Ничего не меняет</td></tr>
+            <tr><td>0 added, 0 changed</td><td>Идемпотентность: желаемое совпало с реальным</td><td class="yes">Так и должно быть</td></tr>
+          </tbody>
+        </table>
       </div>
 
-      <h2 id="iac-s4">Terraform — variables, tfvars, outputs</h2>
+      <h3>Variables, tfvars, outputs</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -326,7 +316,7 @@ output "url" {
 # terraform output -json     — машинно-читаемо (для CI и для inventory Ansible)</pre>
       </div>
 
-      <h2 id="iac-s5">Terraform — модули и структура прод-репозитория</h2>
+      <h3>Модули и структура прод-репозитория</h3>
       <p><strong>Модуль</strong> — папка с <code>.tf</code>-файлами, которую вызывают как функцию: передали переменные — получили ресурсы и outputs. Всё, что делаешь дважды (сервер, сеть, вся среда), выносится в модуль.</p>
 
       <div class="code-block">
@@ -390,7 +380,7 @@ output "web_ips" {
 }</pre>
       </div>
 
-      <h2 id="iac-s6">Terraform — backend, workspaces, окружения</h2>
+      <h3>Remote backend, workspaces, окружения</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -433,7 +423,7 @@ name = "web-${terraform.workspace}"
 # Главная опасность workspaces: одна ошибка select — и apply ушёл в прод.</pre>
       </div>
 
-      <h2 id="iac-s7">Terraform — count, for_each, data, lifecycle</h2>
+      <h3>Циклы и защита: count, for_each, data, lifecycle</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -473,7 +463,7 @@ lifecycle {
 }</pre>
       </div>
 
-      <h2 id="iac-s8">Terraform → Ansible/Puppet: передача эстафеты</h2>
+      <h3>Передача эстафеты: Terraform → Ansible/Puppet</h3>
       <p>Terraform создал голую VM. Дальше её кто-то должен настроить. Три рабочих способа — от худшего к лучшему.</p>
 
       <div class="code-block">
@@ -559,7 +549,10 @@ ansible-playbook -i inventory/prod_web.ini site.yml --limit webservers
         <strong>Итог по Terraform:</strong> 4 команды (<code>init → plan → apply → destroy</code>). <strong>Plan читать ВСЕГДА</strong>, особенно искать «destroy» там, где не ждёшь. State — JSON с тем, что terraform знает; в git НЕ кладут (секреты), на проде — remote backend (S3 + lock). Модули в <code>modules/</code> без хардкода, различия сред — в <code>envs/*/terraform.tfvars</code>. Настройку ОС terraform НЕ делает: его работа заканчивается на «машина создана и агент поставлен».
       </div>
 
-      <h2 id="iac-s9">Ansible — место в IaC и структура прод-репозитория</h2>
+      <h2 id="iac-s1">🤖 Ansible — настраиваем push-моделью</h2>
+      <p>Ansible отвечает за <strong>слой 3</strong>: привести уже существующую машину к нужному состоянию. Агентов не требует — приходит по SSH, делает работу и уходит. Базовый конспект (inventory, playbook, идемпотентность, установка агентов) — в разделе <a href="ansible.html" style="color:#58a6ff;">Ansible</a>; здесь — то, что относится к IaC.</p>
+
+      <h3>Структура прод-репозитория</h3>
       <p>Полный конспект по Ansible (inventory, playbook, идемпотентность, установка агентов) — в разделе <a href="ansible.html" style="color:#58a6ff;">Ansible</a>. Здесь — то, что относится именно к IaC: как выглядит настоящий репозиторий и почему он выглядит именно так.</p>
 
       <div class="code-block">
@@ -623,7 +616,7 @@ ansible-playbook -i inventory/prod_web.ini site.yml --limit webservers
     - postgres</pre>
       </div>
 
-      <h2 id="iac-s10">Ansible — роли, переменные, шаблоны Jinja2</h2>
+      <h3>Роли, переменные, шаблоны Jinja2</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -698,7 +691,7 @@ server {
 # | default(false) — если переменная не задана, не падать</pre>
       </div>
 
-      <h2 id="iac-s11">Ansible + Puppet: не «или», а «и»</h2>
+      <h3>Ansible + Puppet: не «или», а «и»</h3>
       <p>Частая прод-схема в крупных конторах: <strong>Ansible ставит и регистрирует агента, Puppet дальше держит конфигурацию.</strong> Каждый делает то, что умеет лучше.</p>
 
       <div class="code-block">
@@ -757,7 +750,10 @@ server {
         <strong>Кто где сильнее:</strong> Ansible — разовые операции и оркестрация по порядку (выкатить релиз на 5 машин по очереди, накатить патчи, эвакуировать ноду). Puppet — <em>непрерывное</em> удержание состояния: правил конфиг руками — через 30 минут он вернулся как в git. Поэтому Ansible часто зовут «руками админа», а Puppet — «иммунной системой парка».
       </div>
 
-      <h2 id="iac-s12">Puppet — архитектура и цикл агента</h2>
+      <h2 id="iac-s2">🎩 Puppet — держим состояние pull-моделью</h2>
+      <p>Puppet отвечает за тот же <strong>слой 3</strong>, но иначе: на каждой машине живёт агент, который сам, каждые 30 минут, приводит её к описанию в git. Не «накатить и уйти», а «постоянно держать». Дальше — весь путь: от архитектуры до боевых примеров и разведки на чужом проде.</p>
+
+      <h3>Архитектура и цикл агента</h3>
       <p><strong>Puppet</strong> — система управления конфигурацией с агентами. Ты описываешь на своём DSL, <em>каким должен быть</em> сервер; агент на каждой машине сам, без твоего участия, приводит машину к этому описанию. Раз в 30 минут. Вечно.</p>
 
       <div class="code-block">
@@ -811,28 +807,30 @@ Puppet  = PULL: на каждом сервере живёт АГЕНТ (демо
 6. СОН до следующего runinterval (по умолчанию 1800 секунд = 30 минут).</pre>
       </div>
 
-      <div class="code-block">
-        <div class="code-header">
-          <span class="lang">СЛОВАРЬ</span>
-          <span>Термины, без которых чужой прод не читается</span>
-        </div>
-        <pre>Манифест (.pp)   файл на языке Puppet с описанием ресурсов
-Ресурс           единица «что должно быть»: package, file, service, user…
-Класс            именованный набор ресурсов, который можно включить (include)
-Модуль           папка со структурой: манифесты + файлы + шаблоны + метаданные
-Каталог          скомпилированный под КОНКРЕТНУЮ ноду список ресурсов
-Facter / факты   сведения о машине (os.family, networking.fqdn, memory…)
-Hiera            хранилище ДАННЫХ (yaml), отдельно от кода
-Profile          твоя обёртка над технологией: «наш nginx, настроенный по-нашему»
-Role             набор профилей: «это веб-сервер». Нода получает ровно одну роль
-PuppetDB         база фактов, каталогов и отчётов всех нод (по ней делают запросы)
-r10k / Code Mgr  инструмент, который выкачивает код из git на puppetserver
-Environment      окружение (production/dev) = ВЕТКА git = папка на сервере
-certname         имя ноды в сертификате — её идентификатор во всей системе
-trusted facts    факты из сертификата, которые нода НЕ может подделать</pre>
+      <div class="table-wrap">
+        <div class="table-title">Словарь Puppet — термины, без которых чужой прод не читается</div>
+        <table class="cmp">
+          <thead><tr><th>Термин</th><th>Что это</th></tr></thead>
+          <tbody>
+            <tr><td>Манифест <code>.pp</code></td><td>Файл на языке Puppet с описанием ресурсов</td></tr>
+            <tr><td>Ресурс</td><td>Единица «что должно быть»: package, file, service, user…</td></tr>
+            <tr><td>Класс</td><td>Именованный набор ресурсов, который включают через <code>include</code></td></tr>
+            <tr><td>Модуль</td><td>Папка со структурой: манифесты + файлы + шаблоны + метаданные</td></tr>
+            <tr><td>Каталог</td><td>Скомпилированный под конкретную ноду список ресурсов (JSON)</td></tr>
+            <tr><td>Facter / факты</td><td>Сведения о машине: <code>os.family</code>, <code>networking.fqdn</code>, память, диски</td></tr>
+            <tr><td>Hiera</td><td>Хранилище <strong>данных</strong> (yaml), отдельно от кода</td></tr>
+            <tr><td>Profile</td><td>Твоя обёртка над технологией: «наш nginx, настроенный по-нашему»</td></tr>
+            <tr><td>Role</td><td>Набор профилей: «это веб-сервер». У ноды ровно одна роль</td></tr>
+            <tr><td>PuppetDB</td><td>База фактов, каталогов и отчётов всех нод — по ней делают запросы</td></tr>
+            <tr><td>r10k / Code Manager</td><td>Выкачивает код из git на puppetserver</td></tr>
+            <tr><td>Environment</td><td>Окружение (production/dev) = <strong>ветка git</strong> = папка на сервере</td></tr>
+            <tr><td>certname</td><td>Имя ноды в сертификате — её идентификатор во всей системе</td></tr>
+            <tr><td>trusted facts</td><td>Факты из сертификата, которые нода <strong>не может подделать</strong></td></tr>
+          </tbody>
+        </table>
       </div>
 
-      <h2 id="iac-s13">Puppet — установка сервера и агента, сертификаты</h2>
+      <h3>Установка сервера и агента, сертификаты</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -927,7 +925,7 @@ strict_variables = true            # падать на опечатках в и�
 autosign         = false           # ⭐ на проде НЕ включать «подпишу кого угодно»</pre>
       </div>
 
-      <h2 id="iac-s14">Puppet — что где лежит на боевом сервере</h2>
+      <h3>Что где лежит на боевом сервере</h3>
       <p>Первое, что нужно, когда тебя пустили на незнакомый прод: карта. Всё Puppet-хозяйство живёт в двух корнях — <code>/etc/puppetlabs</code> (конфиги и код) и <code>/opt/puppetlabs</code> (бинарники и рабочие данные).</p>
 
       <div class="code-block">
@@ -978,7 +976,7 @@ journalctl -u puppetserver -f    логи сервера</pre>
         <strong>Правило номер один:</strong> в <code>/etc/puppetlabs/code/</code> ничего не правят руками. Это <em>развёрнутая копия git-репозитория</em>, её перезатрёт следующий деплой r10k. Правишь в git → мержишь → r10k выкатывает. Если увидел на проде «поправлю тут по-быстрому» — это будущий инцидент.
       </div>
 
-      <h2 id="iac-s15">Puppet — control-repo: структура прод-проекта</h2>
+      <h3>Control-repo: структура прод-проекта</h3>
       <p><strong>Control-repo</strong> — главный git-репозиторий Puppet-хозяйства. Его ветки становятся окружениями: ветка <code>production</code> → каталог <code>environments/production</code>, ветка <code>dev</code> → <code>environments/dev</code>. Это ключевая идея: <em>чтобы протестировать изменение, создаёшь ветку и переводишь одну ноду в это окружение.</em></p>
 
       <div class="code-block">
@@ -1090,7 +1088,7 @@ cat  /etc/puppetlabs/code/environments/production/.r10k-deploy.json   # како
 9. в течение 30 минут изменение само разъезжается по всему парку</pre>
       </div>
 
-      <h2 id="iac-s16">Puppet — язык: ресурсы, атрибуты, зависимости</h2>
+      <h3>Язык: ресурсы, атрибуты, зависимости</h3>
       <p>Puppet описывает <strong>состояние</strong>, а не шаги. Единица описания — <strong>ресурс</strong>. Читается как предложение: «тип ресурса { заголовок: атрибут =&gt; значение }».</p>
 
       <div class="code-block">
@@ -1237,7 +1235,7 @@ $users.each |$login, $opts| {          # по хешу: ключ и значен
 }</pre>
       </div>
 
-      <h2 id="iac-s17">Puppet — классы: объявление, параметры, include</h2>
+      <h3>Классы: объявление, параметры, include</h3>
       <p><strong>Класс</strong> — именованный блок кода, который можно включить в каталог ноды. Это главный строительный элемент: всё, что ты пишешь, живёт в классах.</p>
 
       <div class="code-block">
@@ -1355,7 +1353,7 @@ profile::web::vhost { 'admin':
 #            define = «таких штук может быть много» (vhost, юзер, бэкап-джоб).</pre>
       </div>
 
-      <h2 id="iac-s18">Puppet — модуль, автозагрузка и расширения файлов</h2>
+      <h3>Модуль, автозагрузка и расширения файлов</h3>
       <p>Puppet находит класс по имени <strong>автоматически</strong>, без всяких import. Правило жёсткое: имя класса = путь к файлу. Ошибся на один уровень — «Could not find class».</p>
 
       <div class="code-block">
@@ -1411,28 +1409,23 @@ source => 'puppet:///modules/profile/index.html' → profile/files/index.html
 └── examples/                    примеры вызова</pre>
       </div>
 
-      <div class="code-block">
-        <div class="code-header">
-          <span class="lang">РАСШИРЕНИЯ</span>
-          <span>Какое расширение что означает — шпаргалка</span>
-        </div>
-        <pre>.pp      манифест на языке Puppet. Классы, ресурсы, defined types.
-         Лежит ТОЛЬКО в manifests/ (и functions/, plans/).
-
-.epp     Embedded Puppet — ⭐ современный шаблон. Переменные Puppet + типизированные
-         параметры. Лежит в templates/. Подключается функцией epp().
-
-.erb     Embedded Ruby — старый шаблон (наследие). Тоже в templates/,
-         подключается template(). Синтаксис Ruby, переменные через @.
-         Новое пишут на .epp, .erb трогают только в легаси.
-
-.yaml    Hiera-данные. Лежат в data/. Просто ключ-значение, НИКАКОЙ логики.
-.eyaml   то же самое, но значения зашифрованы (hiera-eyaml). Секреты.
-.json    metadata.json модуля; ещё json_data-бэкенд Hiera (реже).
-.rb      Ruby: кастомные факты (lib/facter/), функции, типы, провайдеры.
-Puppetfile   без расширения — список внешних модулей для r10k.
-hiera.yaml   конфигурация иерархии (не данные! только порядок поиска).
-environment.conf   настройки окружения: modulepath, config_version.</pre>
+      <div class="table-wrap">
+        <div class="table-title">Расширения файлов в Puppet — что где лежит</div>
+        <table class="cmp">
+          <thead><tr><th>Расширение</th><th>Что это</th><th>Где лежит</th><th>Как подключается</th></tr></thead>
+          <tbody>
+            <tr><td><code>.pp</code></td><td>Манифест: классы, ресурсы, defined types</td><td><code>manifests/</code></td><td>Автозагрузка по имени класса</td></tr>
+            <tr><td><code>.epp</code></td><td>⭐ Современный шаблон (Embedded Puppet), типизированные параметры</td><td><code>templates/</code></td><td><code>epp('модуль/файл.epp', {…})</code></td></tr>
+            <tr><td><code>.erb</code></td><td>Старый шаблон на Ruby — только легаси</td><td><code>templates/</code></td><td><code>template('модуль/файл.erb')</code></td></tr>
+            <tr><td>без расширения<br>или любое</td><td>Статический файл как есть, байт-в-байт</td><td><code>files/</code></td><td><code>source =&gt; 'puppet:///modules/модуль/путь'</code></td></tr>
+            <tr><td><code>.yaml</code></td><td>Данные Hiera. Ключ-значение, никакой логики</td><td><code>data/</code></td><td>Автоматически по <code>hiera.yaml</code></td></tr>
+            <tr><td><code>.eyaml</code></td><td>То же, но значения зашифрованы (секреты)</td><td><code>data/secrets/</code></td><td>Уровень с <code>eyaml_lookup_key</code></td></tr>
+            <tr><td><code>.json</code></td><td><code>metadata.json</code> модуля: имя, версия, зависимости</td><td>корень модуля</td><td>Читается Puppet и forge</td></tr>
+            <tr><td><code>.rb</code></td><td>Ruby: кастомные факты, функции, типы, провайдеры</td><td><code>lib/facter/</code>, <code>lib/puppet/</code></td><td>Приезжает на ноду через pluginsync</td></tr>
+            <tr><td><code>Puppetfile</code></td><td>Список внешних модулей и их версий</td><td>корень control-repo</td><td><code>r10k deploy environment -p</code></td></tr>
+            <tr><td><code>hiera.yaml</code></td><td>Иерархия поиска данных (не данные!)</td><td>корень окружения</td><td>Читается при компиляции каталога</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="error-block">
@@ -1449,7 +1442,7 @@ puppet parser validate site-modules/profile/manifests/web/nginx.pp
 r10k deploy environment production -p</pre>
       </div>
 
-      <h2 id="iac-s19">Puppet — шаблоны: .epp и .erb</h2>
+      <h3>Шаблоны: .epp и .erb</h3>
       <p>Шаблон нужен, когда файл на каждой машине <em>почти</em> одинаковый: отличается hostname, портом, списком бэкендов. Статику кладут в <code>files/</code>, изменяемое — в <code>templates/</code>.</p>
 
       <div class="code-block">
@@ -1528,7 +1521,7 @@ file { '/var/www/html/logo.png':
         <strong>Когда что:</strong> <code>source</code> — файл не меняется от машины к машине (логотип, CA-сертификат, статичный скрипт). <code>content =&gt; epp()</code> — в файле есть хоть одно значение, зависящее от ноды, окружения или Hiera. <code>concat</code> (модуль puppetlabs-concat) — файл собирается из кусков, которые добавляют РАЗНЫЕ классы (например, общий <code>sshd_config</code> или список prometheus-таргетов).
       </div>
 
-      <h2 id="iac-s20">Puppet — Roles &amp; Profiles: как заполнять роль и профиль</h2>
+      <h3>Roles &amp; Profiles: как заполнять роль и профиль</h3>
       <p>Это <strong>отраслевой стандарт</strong> организации Puppet-кода. Без него любой проект через полгода превращается в кашу, где непонятно, кто и что накатывает на ноду. Три уровня, у каждого строго своя работа.</p>
 
       <div class="code-block">
@@ -1669,7 +1662,7 @@ class profile::base {
         <strong>Как быстро понять, где ошибка в чужом коде:</strong> если в <code>role::*</code> есть хоть один <code>file{}</code> или <code>if</code> — код положили не туда. Если в <code>profile::*</code> есть строка с реальным паролем или доменом — данные положили не туда (их место в Hiera). Эти два признака ловят 80% беспорядка в Puppet-репозиториях.
       </div>
 
-      <h2 id="iac-s21">Puppet — site.pp и классификация нод</h2>
+      <h3>site.pp и классификация нод</h3>
       <p><code>manifests/site.pp</code> — точка входа компиляции. Здесь решается единственный вопрос: <strong>какая нода какие классы получает</strong>. Есть три способа, от древнего к современному.</p>
 
       <div class="code-block">
@@ -1773,7 +1766,7 @@ classes:
 # — потому что стратегия 'unique' СКЛЕИЛА списки со всех трёх уровней.</pre>
       </div>
 
-      <h2 id="iac-s22">Puppet — Hiera: иерархия и автоматический lookup</h2>
+      <h3>Hiera: иерархия и автоматический lookup</h3>
       <p><strong>Hiera</strong> — отдельное хранилище данных. Главная идея Puppet-архитектуры: <strong>код в <code>.pp</code>, данные в <code>.yaml</code></strong>. Код одинаков для всех; различия между нодами, ролями, ЦОДами и окружениями живут в yaml-файлах.</p>
 
       <div class="code-block">
@@ -1890,58 +1883,46 @@ lookup_options:
       knockout_prefix: '--'        # '--kirill' на уровне ноды = удалить эту ветку</pre>
       </div>
 
+      <div class="table-wrap">
+        <div class="table-title">Стратегии merge — как значения с разных уровней иерархии складываются</div>
+        <table class="cmp">
+          <thead><tr><th>Стратегия</th><th>Поведение</th><th>Для чего</th></tr></thead>
+          <tbody>
+            <tr><td><code>first</code><br><em>по умолчанию</em></td><td>Взять значение с самого верхнего уровня, где нашлось. Остальные игнорируются</td><td>Обычные параметры: порт, домен, версия</td></tr>
+            <tr><td><code>unique</code></td><td>Собрать значения со <strong>всех</strong> уровней в один плоский массив, убрать дубликаты</td><td>Списки: классы ноды, пакеты, правила firewall</td></tr>
+            <tr><td><code>hash</code></td><td>Слить хеши по верхнему уровню ключей (вложенное берётся целиком с верхнего уровня)</td><td>Простые словари настроек</td></tr>
+            <tr><td><code>deep</code></td><td>Слить хеши рекурсивно, до самых глубоких ключей. Поддерживает <code>knockout_prefix</code> для удаления веток</td><td>Сложные структуры: users/accounts, vhosts</td></tr>
+          </tbody>
+        </table>
+      </div>
+
       <div class="code-block">
         <div class="code-header">
-          <span class="lang">СТРАТЕГИИ</span>
-          <span>merge — четыре поведения, которые надо знать</span>
+          <span class="lang">PUPPET</span>
+          <span>Задать стратегию явно</span>
         </div>
-        <pre>first (по умолчанию)  взять значение с САМОГО ВЕРХНЕГО уровня, где нашлось.
-                      Остальные игнорируются. Так работают обычные параметры.
-
-unique                собрать значения со ВСЕХ уровней в один плоский массив,
-                      убрать дубликаты. Для списков: классы, пакеты, правила.
-
-hash                  слить хеши по верхнему уровню ключей
-                      (вложенное значение целиком берётся с верхнего уровня).
-
-deep                  слить хеши РЕКУРСИВНО, до самых глубоких ключей.
-                      Для сложных структур вроде users/accounts.
-
-# Явно, прямо в коде:
-$pkgs  = lookup('profile::base::packages::list', Array[String], 'unique', [])
+<pre>$pkgs  = lookup('profile::base::packages::list', Array[String], 'unique', [])
 $users = lookup({'name' =&gt; 'users', 'merge' =&gt; {'strategy' =&gt; 'deep'}})</pre>
       </div>
 
-      <h2 id="iac-s23">Puppet — правила для одной ноды и глобально</h2>
+      <h3>Правила для одной ноды и глобально</h3>
       <p>Самый частый практический вопрос: «надо поменять параметр только на одной машине» / «надо накатить на все сразу». В Puppet это не разные механизмы, а разные <strong>уровни одной иерархии</strong>.</p>
 
-      <div class="code-block">
-        <div class="code-header">
-          <span class="lang">⭐ ПРАКТИКА</span>
-          <span>Куда класть изменение — таблица решений</span>
-        </div>
-        <pre>ЗАДАЧА                                    КУДА ПИСАТЬ
-─────────────────────────────────────────────────────────────────────────
-На ВСЕ машины компании                    data/common.yaml
-                                          (+ класс в profile::base)
-
-На все машины с ролью webserver           data/roles/webserver.yaml
-
-На все машины на RHEL                     data/os/RedHat.yaml
-
-На все машины в ЦОД msk                   data/dc/msk.yaml
-
-На все машины окружения dev               ветка dev control-repo
-                                          (или data/env/dev.yaml)
-
-⭐ ТОЛЬКО на web07                         data/nodes/web07.example.com.yaml
-
-Добавить web07 лишний класс               в его же nodes/*.yaml, ключ classes:
-                                          (стратегия unique — добавится к общим)
-
-Убрать у web07 то, что даёт общий уровень  knockout_prefix ('--ключ')
-                                          либо параметр-выключатель:
-                                          profile::web::nginx::manage_ssl: false</pre>
+      <div class="table-wrap">
+        <div class="table-title">Куда писать изменение — таблица решений</div>
+        <table class="cmp">
+          <thead><tr><th>Задача</th><th>Файл</th><th>Комментарий</th></tr></thead>
+          <tbody>
+            <tr><td>На все машины компании</td><td><code>data/common.yaml</code></td><td>+ класс включить в <code>profile::base</code></td></tr>
+            <tr><td>На все с ролью webserver</td><td><code>data/roles/webserver.yaml</code></td><td>Роль берётся из trusted-факта <code>pp_role</code></td></tr>
+            <tr><td>На все машины на RHEL</td><td><code>data/os/RedHat.yaml</code></td><td>Путь строится из факта <code>os.family</code></td></tr>
+            <tr><td>На все машины в ЦОД msk</td><td><code>data/dc/msk.yaml</code></td><td>Нужен кастомный факт <code>datacenter</code></td></tr>
+            <tr><td>На всё окружение dev</td><td>ветка <code>dev</code> control-repo</td><td>Окружение = ветка git</td></tr>
+            <tr><td>⭐ Только на одну ноду web07</td><td><code>data/nodes/web07.example.com.yaml</code></td><td>Имя файла = <code>certname</code> ноды</td></tr>
+            <tr><td>Дать web07 лишний класс</td><td>там же, ключ <code>classes:</code></td><td>При <code>merge: unique</code> добавится к общим</td></tr>
+            <tr><td>Убрать у web07 то, что даёт общий уровень</td><td>там же</td><td><code>knockout_prefix</code> (<code>'--ключ'</code>) либо параметр-выключатель <code>manage_x: false</code></td></tr>
+          </tbody>
+        </table>
       </div>
 
       <div class="code-block">
@@ -2000,7 +1981,7 @@ puppet lookup classes --node web07.example.com --merge unique
 puppet lookup --node web07.example.com --explain any_key | grep 'Path '</pre>
       </div>
 
-      <h2 id="iac-s24">Puppet — секреты: hiera-eyaml</h2>
+      <h3>Секреты: hiera-eyaml</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -2036,7 +2017,7 @@ class profile::app::shopfront (
         <strong>Три уровня зрелости работы с секретами:</strong> (1) пароль прямо в манифесте — так делать нельзя никогда; (2) hiera-eyaml — секрет в git зашифрован, ключ только на сервере — рабочий отраслевой минимум; (3) внешний Vault (модуль <code>hiera_vault</code>) — Puppet ходит за секретом в HashiCorp Vault на каждой компиляции, в git секретов нет вообще. Тип <code>Sensitive[String]</code> нужен в любом случае: он не даёт паролю утечь в отчёты, логи и <code>--debug</code>.
       </div>
 
-      <h2 id="iac-s25">Puppet — пример 1: пользователи, sudo и SSH-ключи</h2>
+      <h3>Пример 1: пользователи, sudo и SSH-ключи</h3>
       <p>Самая частая задача: «заведи Пете доступ на все веб-серверы, а Васю убери отовсюду». В Puppet это правка одного yaml-файла — дальше парк разъедется сам за 30 минут.</p>
 
       <div class="code-block">
@@ -2163,7 +2144,7 @@ profile::base::users::accounts:
 # Убрали строчку из yaml → следующий прогон удалит пользователя сам.</pre>
       </div>
 
-      <h2 id="iac-s26">Puppet — пример 2: приветственная страница после авторизации</h2>
+      <h3>Пример 2: приветственная страница после авторизации</h3>
       <p>Две разные «приветственные страницы», которые обычно имеют в виду: <strong>баннер в терминале при SSH-логине</strong> и <strong>веб-страница, которая открывается после ввода логина и пароля</strong>. Разбираем обе.</p>
 
       <div class="code-block">
@@ -2384,7 +2365,7 @@ profile::web::welcome::users:
 #   eyaml encrypt -s '$apr1$xxxx$yyyyyy'</pre>
       </div>
 
-      <h2 id="iac-s27">Puppet — пример 3: мониторинг и алертинг «как у всех»</h2>
+      <h3>Пример 3: мониторинг и алертинг «как у всех»</h3>
       <p>Боевой стандарт: <strong>node_exporter на каждой машине</strong> (без исключений), Prometheus сам узнаёт о новых нодах, Alertmanager шлёт в Telegram. Ключевая магия — <strong>exported resources</strong>: нода «объявляет» себя, мониторинг-сервер эти объявления «собирает».</p>
 
       <div class="code-block">
@@ -2615,7 +2596,7 @@ profile::monitoring::prometheus::alert_rules:
         <strong>Что нужно, чтобы заработали exported resources:</strong> развёрнутый <strong>PuppetDB</strong> и <code>storeconfigs = true</code> на сервере. Механика: нода при своём прогоне кладёт «объявление» в PuppetDB, мониторинг-нода при своём прогоне их забирает коллектором <code>&lt;&lt;| |&gt;&gt;</code>. Следствие: новая цель появится в Prometheus только после того, как <em>оба</em> агента отработают — то есть в пределах 30–60 минут. Это нормальная цена за то, что список целей никто и никогда не правит руками.
       </div>
 
-      <h2 id="iac-s28">Puppet — пример 4: разворачиваем любое приложение</h2>
+      <h3>Пример 4: разворачиваем любое приложение</h3>
       <p>Универсальный скелет прикладного профиля. Под ним разворачивается что угодно: Python/FastAPI, Java-jar, Go-бинарь, Node. Меняются детали, каркас один и тот же — <strong>пользователь → каталоги → код → конфиг → systemd → сервис → прокси → firewall → мониторинг</strong>.</p>
 
       <div class="code-block">
@@ -2839,7 +2820,7 @@ curl -sf https://shop.company.ru/healthz && echo OK
 #      (-f 5 = по пять машин за раз, а не все сразу)</pre>
       </div>
 
-      <h2 id="iac-s29">Puppet — как разобраться в чужом проде</h2>
+      <h3>Как разобраться в чужом проде</h3>
       <p>Тебя пустили на незнакомый сервер. Задача: понять, <strong>кто им управляет, что именно накатывается и откуда берутся значения</strong>. Порядок действий — сверху вниз, без гадания.</p>
 
       <div class="code-block">
@@ -2937,7 +2918,7 @@ puppet query 'resources[certname] { type = "Class" and title = "Role::Webserver"
         <strong>Порядок чтения любого Puppet-прода одной строкой:</strong> <code>site.pp</code> → какая <strong>роль</strong> у ноды → какие <strong>профили</strong> в роли → что делает <strong>профиль</strong> → откуда <strong>данные</strong> (<code>puppet lookup --explain</code>). Пять шагов, и ты знаешь про сервер больше, чем половина команды.
       </div>
 
-      <h2 id="iac-s30">Puppet — отладка и типовые ошибки</h2>
+      <h3>Отладка и типовые ошибки</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -3029,7 +3010,7 @@ dot -Tpng cycles.dot -o /tmp/cycle.png    # посмотреть глазами
      и проверить .r10k-deploy.json</pre>
       </div>
 
-      <h2 id="iac-s31">Puppet — cheatsheet и best practices</h2>
+      <h3>Cheatsheet и best practices</h3>
 
       <div class="code-block">
         <div class="code-header">
@@ -3101,6 +3082,63 @@ journalctl -u puppet                               логи агента</pre>
 
 
 
+
+
+      <h2 id="iac-s3">🏁 Итог: что и для чего лучше</h2>
+      <p>Три инструмента не конкуренты — они закрывают разные задачи. Ниже всё сравнение в одном месте: сначала «чем отличаются», потом «что брать под задачу».</p>
+
+      <div class="table-wrap">
+        <div class="table-title">Terraform vs Ansible vs Puppet — по всем осям</div>
+        <table class="cmp">
+          <thead>
+            <tr><th></th><th>🌍 Terraform</th><th>🤖 Ansible</th><th>🎩 Puppet</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Что делает</td><td>Создаёт ресурсы в облаке</td><td>Настраивает существующие машины</td><td>Настраивает существующие машины</td></tr>
+            <tr><td>Модель</td><td>API провайдера</td><td><strong>PUSH</strong> по SSH</td><td><strong>PULL</strong> агентом</td></tr>
+            <tr><td>Агент на сервере</td><td class="yes">не нужен</td><td class="yes">не нужен</td><td class="no">нужен (демон puppet)</td></tr>
+            <tr><td>Центральный сервер</td><td class="yes">не нужен*</td><td class="yes">не нужен</td><td class="no">нужен (puppetserver)</td></tr>
+            <tr><td>Язык</td><td>HCL (<code>.tf</code>)</td><td>YAML (<code>.yml</code>)</td><td>Puppet DSL (<code>.pp</code>)</td></tr>
+            <tr><td>Помнит состояние</td><td>да — <code>tfstate</code></td><td class="no">нет</td><td>да — каталог + PuppetDB</td></tr>
+            <tr><td>Когда применяется</td><td>когда запустил</td><td>когда запустил</td><td class="yes">сам, каждые 30 мин</td></tr>
+            <tr><td>Дрейф конфигурации</td><td class="mid">не лечит</td><td class="mid">лечит при запуске</td><td class="yes">лечит сам, всегда</td></tr>
+            <tr><td>Порядок выполнения</td><td>по графу зависимостей</td><td class="yes">строго сверху вниз</td><td class="mid">по зависимостям, их надо объявлять</td></tr>
+            <tr><td>Оркестрация<br><em>«сначала эти 5, потом те»</em></td><td class="no">нет</td><td class="yes">сильная сторона (<code>serial</code>, <code>--limit</code>)</td><td class="no">плохо — ноды независимы</td></tr>
+            <tr><td>Порог входа</td><td class="mid">средний</td><td class="yes">низкий</td><td class="no">высокий</td></tr>
+            <tr><td>Данные отдельно от кода</td><td>tfvars</td><td>group_vars / host_vars</td><td class="yes">Hiera — самая развитая модель</td></tr>
+            <tr><td>Секреты</td><td>внешние (Vault, SOPS)</td><td>ansible-vault</td><td>hiera-eyaml / Vault</td></tr>
+            <tr><td>Где чаще встретишь</td><td>облака, k8s-платформы</td><td>всё подряд, от 1 до 500 машин</td><td>банки, телеком, парки 1000+ VM</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="color:#8b949e;font-size:0.85rem;">* state всё равно хранят централизованно — S3 + блокировка.</p>
+
+      <div class="table-wrap">
+        <div class="table-title">Что брать под задачу</div>
+        <table class="cmp">
+          <thead><tr><th>Задача</th><th>Инструмент</th><th>Почему</th></tr></thead>
+          <tbody>
+            <tr><td>Поднять 10 VM, сеть и балансировщик</td><td><strong>Terraform</strong></td><td>Единственный из трёх умеет создавать ресурсы и помнить их в state</td></tr>
+            <tr><td>Настроить 5 серверов здесь и сейчас</td><td><strong>Ansible</strong></td><td>Ничего не надо ставить заранее: есть SSH — есть управление</td></tr>
+            <tr><td>Выкатить релиз по очереди, по 5 машин</td><td><strong>Ansible</strong></td><td>Оркестрация: <code>serial</code>, <code>--limit</code>, порядок шагов гарантирован</td></tr>
+            <tr><td>Держать 500+ машин в едином состоянии</td><td><strong>Puppet</strong></td><td>Ноды обслуживают себя сами, никто их не обходит</td></tr>
+            <tr><td>Гарантия «руками не поправят»</td><td><strong>Puppet</strong></td><td>Правку откатит следующий прогон агента — через 30 минут</td></tr>
+            <tr><td>Комплаенс: «докажи, что на всех машинах X»</td><td><strong>Puppet</strong></td><td>PuppetDB хранит факты, каталоги и отчёты всего парка</td></tr>
+            <tr><td>Разовое: собрать логи, накатить патч, ребутнуть</td><td><strong>Ansible</strong></td><td>Puppet для разовых действий не предназначен вообще</td></tr>
+            <tr><td>Поставить агента на новую машину</td><td>cloud-init или <strong>Ansible</strong></td><td>Bootstrap делают один раз, дальше машину ведёт Puppet</td></tr>
+            <tr><td>Небольшая команда, 10–50 серверов</td><td>Terraform + <strong>Ansible</strong></td><td>Puppet-сервер тут дороже в обслуживании, чем выгода от него</td></tr>
+            <tr><td>Энтерпрайз, много команд, жёсткий стандарт</td><td>Terraform + <strong>Puppet</strong></td><td>Roles &amp; Profiles + Hiera дают структуру, которая не разъезжается</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <strong>Типовая прод-схема, которую стоит уметь описать словами:</strong> Terraform поднял VM и сеть → cloud-init поставил и зарегистрировал агента → Puppet (или Ansible) держит операционную конфигурацию → CI/CD катает релизы приложения. Каждый слой в своём git-репозитории, каждое изменение — через PR.
+      </div>
+
+      <div class="note">
+        <strong>Порядок изучения с нуля:</strong> (1) <strong>Ansible</strong> — самый низкий порог, сразу видно результат, пригодится в любой конторе; (2) <strong>Terraform</strong> — как только появляется облако; (3) <strong>Puppet</strong> — когда попал туда, где он уже стоит, или когда машин стало столько, что обходить их push-моделью больше не выходит. Идея у всех трёх одна: <em>желаемое состояние лежит в git, инструмент сам вычисляет разницу и приводит к нему</em>. Освоив её на одном, второй учишь за неделю.
+      </div>
 
     </section>
 

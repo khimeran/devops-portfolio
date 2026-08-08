@@ -217,15 +217,42 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
   <!-- ===== ГДЕ Я СЕЙЧАС ===== -->
   <h2>📍 Где я сейчас</h2>
   <div class="card">
-    <div class="focus-row"><b>Разбираю:</b> <span>Python — не синтаксис, а <b>модель языка</b>: объекты, переменные-ярлыки, типы. Параллельно строю монитор сервисов на <code>requests</code>.</span></div>
-    <div class="focus-row"><b>Стадия:</b> <span><span class="tag">🟡 уложил фундамент, логика языка щёлкнула</span></span></div>
-    <div class="focus-row"><b>План недели:</b> <span>закрепить модель Python на боевой задаче — монитор сайтов (список + цикл + таблица), дальше парсинг (BeautifulSoup) и отчёт в Excel (pandas).</span></div>
-    <div class="focus-row" style="margin-top:0.9rem"><b>Недавно узнал (фундамент Python):</b></div>
+    <div class="focus-row"><b>Разбираю:</b> <span><b>IaC целиком</b> — Terraform (создать), Ansible (настроить push), Puppet (держать pull). Параллельно добиваю Python: модель языка + монитор сервисов на <code>requests</code>.</span></div>
+    <div class="focus-row"><b>Стадия:</b> <span><span class="tag">🟡 теория трёх инструментов разобрана вглубь, впереди — руками</span></span></div>
+    <div class="focus-row"><b>План недели:</b> <span>поднять на виртуалках связку «Terraform → cloud-init → агент», собрать свою роль Ansible для node_exporter и прогнать тест идемпотентности (второй прогон = <code>changed=0</code>).</span></div>
+    <div class="focus-row" style="margin-top:0.9rem"><b>Недавно узнал (IaC):</b></div>
     <ul style="margin-top:0.2rem">
-      <li>🏷️ <b>Переменная = стикер на объект, а не коробка</b> — отсюда динамическая типизация: тип живёт у значения, не у переменной.</li>
-      <li>🔑 <b>Точка = «залезь в объект»; библиотека = объект с функциями</b> — их не зубрят, а исследуют фонариками <code>type()</code> / <code>dir()</code> / <code>help()</code>.</li>
-      <li>🔗 <b>Цепочки методов = пайпы</b> (<code>s.strip().upper()</code>), но следи за типом на каждом звене. <code>try/except</code> ловит падения, чтоб мёртвый сайт не ронял скрипт.</li>
+      <li>🧱 <b>Три инструмента — не конкуренты, а слои:</b> Terraform создаёт то, чего нет; Ansible и Puppet приводят существующее к описанию. Разница между ними только в модели доставки — push по SSH против pull агентом.</li>
+      <li>🎩 <b>Puppet = иммунная система парка:</b> агент каждые 30 минут сам сверяет машину с git. Правку руками откатит следующий прогон — дрейф конфигурации невозможен в принципе.</li>
+      <li>🗂️ <b>Код отдельно, данные отдельно:</b> в Puppet различие «на все машины» и «только на web07» — это не два механизма, а два уровня иерархии Hiera (<code>data/common.yaml</code> против <code>data/nodes/web07.yaml</code>).</li>
+      <li>🛡️ <b>Установка агента — не «скачал и запустил»:</b> версия зафиксирована, бинарь с checksum, systemd-юнит из шаблона, порт только для мониторинга, и обязательная приёмка в конце.</li>
     </ul>
+  </div>
+
+  <h3 style="color:#79c0ff; margin-top:1.5rem">🔗 Как темы связаны между собой</h3>
+  <div class="card">
+    <p class="muted" style="margin-top:0">Каждая тема — не отдельный конспект, а звено одной цепочки. Так это собирается в голове:</p>
+    <pre><code><span style="color:#3fb950">Linux</span> (права, процессы, systemd, диски)
+   └─ фундамент под всё остальное: контейнер, агент и сервис — это процессы
+
+<span style="color:#3fb950">Сеть + SSH</span> → <span style="color:#3fb950">nginx</span> (reverse proxy, TLS)
+   └─ как трафик доходит до приложения и где он ломается (502 vs 504)
+
+<span style="color:#58a6ff">Docker</span> → <span style="color:#58a6ff">Compose</span> → <span style="color:#d29922">Kubernetes</span>
+   └─ упаковали приложение → собрали стек → отдали оркестратору
+
+<span style="color:#d2a8ff">Git</span> → <span style="color:#58a6ff">GitHub Actions / Jenkins</span> (CI/CD)
+   └─ «желаемое состояние лежит в git» — общий принцип и для CI, и для IaC
+
+<span style="color:#ffa657">IaC</span>: <span style="color:#ffa657">Terraform</span> → cloud-init → <span style="color:#ffa657">Ansible</span> / <span style="color:#ffa657">Puppet</span> → CI/CD
+   └─ создать инфру → поставить агента → держать конфигурацию → катать релизы
+
+<span style="color:#58a6ff">Prometheus + Grafana</span> ← сюда стекается всё вышеперечисленное
+   └─ node_exporter ставит Ansible или Puppet, цели собираются автоматически,
+      алерты уходят в Telegram через Alertmanager
+
+<span style="color:#d2a8ff">Python / Bash</span> — клей между слоями: healthcheck, парсинг, автоматизация
+<span style="color:#d2a8ff">SQL</span> — под каждым приложением, и его тоже разворачивает IaC</code></pre>
   </div>
 
   <h3 style="color:#79c0ff; margin-top:1.5rem">🕰 Летопись</h3>
@@ -273,7 +300,8 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
           <li>PromQL и Grafana — теория есть, практики мало</li>
           <li>EXPLAIN ANALYZE и индексы — нужно потрогать руками</li>
           <li>SSL/TLS на nginx — поверхностно</li>
-          <li>Ansible / Jenkins — прочитано, но не собрано вживую</li>
+          <li>IaC — теория трёх инструментов разобрана вглубь (Terraform, Ansible, Puppet), но вживую не собрано: нет своего puppetserver и парка машин</li>
+          <li>Jenkins — прочитано, но не собрано вживую</li>
           <li>HA-кластеры (кворум, split-brain) — пока теория</li>
         </ul>
       </div>
@@ -356,25 +384,30 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
         ['Метрики в FastAPI', 'yellow'],
         ['PromQL, Grafana-дашборды', 'red'],
       ]],
-      ['🏗 IaC · Terraform', [
+      ['🌍 IaC · Terraform', [
         ['state — главная концепция', 'green'],
-        ['Жизненный цикл, идемпотентность', 'yellow'],
-        ['Variables / outputs, import', 'red'],
-        ['Модули, remote backend + lock, окружения', 'red'],
-        ['Передача эстафеты: cloud-init → Ansible/Puppet', 'red'],
+        ['Жизненный цикл: init / plan / apply / destroy', 'green'],
+        ['Чтение плана: ~, -/+, forces replacement', 'green'],
+        ['Variables / tfvars / outputs', 'yellow'],
+        ['Модули и структура прод-репозитория', 'yellow'],
+        ['Remote backend + lock, окружения', 'yellow'],
+        ['count / for_each / data / lifecycle', 'yellow'],
+        ['Поднять инфру в облаке вживую', 'empty'],
       ]],
       ['🤖 IaC · Ansible', [
         ['Концепции, inventory, идемпотентность', 'yellow'],
-        ['Playbook (собрать вживую)', 'red'],
-        ['Роли, group_vars/host_vars, шаблоны Jinja2', 'red'],
-        ['Правильная установка агентов (node_exporter и др.)', 'red'],
+        ['Playbook, модули, handlers', 'yellow'],
+        ['Роли, group_vars / host_vars, Jinja2', 'yellow'],
+        ['Установка агентов: checksum, systemd, приёмка', 'yellow'],
+        ['Собрать и прогнать на парке вживую', 'red'],
       ]],
       ['🎩 IaC · Puppet', [
-        ['Pull-модель, агент, каталог, сертификаты', 'red'],
-        ['Манифесты, классы, модули, шаблоны .epp', 'red'],
-        ['Roles & Profiles, control-repo, r10k', 'red'],
-        ['Hiera: иерархия, нода vs глобально, eyaml', 'red'],
-        ['Развернуть приложение и мониторинг целиком', 'empty'],
+        ['Pull-модель, цикл агента, сертификаты', 'yellow'],
+        ['Манифесты, классы, модули, шаблоны .epp', 'yellow'],
+        ['Roles & Profiles, control-repo, r10k', 'yellow'],
+        ['Hiera: иерархия, нода vs глобально, eyaml', 'yellow'],
+        ['Разведка на чужом проде: lookup --explain, каталог', 'red'],
+        ['Поднять puppetserver и агента вживую', 'empty'],
       ]],
       ['🔐 Секреты', [
         ['.env, переменные окружения, .gitignore', 'green'],

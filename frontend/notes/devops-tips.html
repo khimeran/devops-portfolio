@@ -993,6 +993,161 @@ watch -n2 'kubectl get pods'    # обновлять список подов к�
         <strong>Мини-правила на каждый день:</strong> <code>kill</code> до <code>kill -9</code> (сначала вежливо). Условие на правую таблицу LEFT JOIN — в <code>ON</code>, не в <code>WHERE</code>. В Dockerfile — exec form <code>["cmd","arg"]</code>. Запорол git — <code>git reflog</code> спасёт. Сломался под/сервис — сначала <code>describe</code>/<code>logs</code>/<code>journalctl</code>, потом думать. Принцип least privilege: прав ровно столько, сколько нужно (<code>600</code> на ключи и секреты).
       </div>
 
+
+      <h2 id="devops-tips-s18">🏗 IaC — лайфхаки: Terraform, Ansible, Puppet</h2>
+      <p>Приёмы, которые экономят часы и нервы. Полная теория — в разделе <a href="iac.html" style="color:#58a6ff;">IaC</a>, здесь только то, что реально набивают на клавиатуре каждый день.</p>
+
+      <div class="table-wrap">
+        <div class="table-title">Одно и то же действие в трёх инструментах — шпаргалка для переключения</div>
+        <table class="cmp">
+          <thead><tr><th>Что нужно</th><th>🌍 Terraform</th><th>🤖 Ansible</th><th>🎩 Puppet</th></tr></thead>
+          <tbody>
+            <tr><td>Посмотреть, ничего не меняя</td><td><code>plan</code></td><td><code>--check --diff</code></td><td><code>agent -t --noop</code></td></tr>
+            <tr><td>Применить</td><td><code>apply</code></td><td><code>ansible-playbook</code></td><td><code>agent -t</code></td></tr>
+            <tr><td>Только часть</td><td><code>-target=…</code> (аварийно)</td><td><code>--tags</code> / <code>--limit</code></td><td><code>--tags</code></td></tr>
+            <tr><td>Подробный лог</td><td><code>TF_LOG=DEBUG</code></td><td><code>-vvv</code></td><td><code>--debug --evaltrace</code></td></tr>
+            <tr><td>Откуда взялось значение</td><td><code>console</code> / <code>output</code></td><td><code>-m debug -a var=…</code></td><td><code>lookup --explain</code> ⭐</td></tr>
+            <tr><td>Проверить синтаксис</td><td><code>validate</code>, <code>fmt -check</code></td><td><code>--syntax-check</code>, <code>ansible-lint</code></td><td><code>parser validate</code>, <code>puppet-lint</code></td></tr>
+            <tr><td>Где «правда» о состоянии</td><td><code>tfstate</code></td><td>нигде — только сам сервер</td><td>каталог + PuppetDB</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TERRAFORM</span>
+          <span>Приёмы, которые спасают прод</span>
+        </div>
+        <pre># ⭐ Применять РОВНО то, что смотрел глазами (между plan и apply инфра могла измениться):
+terraform plan -out=tfplan
+terraform apply tfplan
+
+# ⭐⭐ Вытащить из плана всё, что будет УДАЛЕНО или ПЕРЕСОЗДАНО — до того, как нажал yes:
+terraform show -json tfplan | jq -r '
+  .resource_changes[] | select(.change.actions[] | . == "delete")
+  | .address'
+
+# Рефакторинг без пересоздания ресурсов (переименовал модуль/ресурс):
+moved {                        # ⭐ современный способ, прямо в коде
+  from = aws_instance.web
+  to   = module.web.aws_instance.this
+}
+terraform state mv СТАРЫЙ НОВЫЙ    # старый способ, руками
+
+# Поиграться с выражением, не трогая инфру:
+terraform console
+> cidrsubnet("10.0.0.0/16", 8, 3)
+> [for s in var.subnets : upper(s)]
+
+# Инфру поправили руками — принять реальность без изменений:
+terraform apply -refresh-only
+
+# Зависла блокировка (упал CI-раннер посреди apply):
+terraform force-unlock LOCK_ID     # ⚠️ только когда точно уверен, что никто не применяет
+
+# Обязательные мелочи:
+#   .terraform.lock.hcl — КОММИТИТЬ в git (фиксирует версии провайдеров)
+#   terraform fmt -recursive -check  — в CI, чтобы не спорить о форматировании
+#   lifecycle { prevent_destroy = true } — на прод-БД и бакеты со state
+#   sensitive = true у секретных переменных — не утекут в лог CI</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ANSIBLE</span>
+          <span>Ускоряем работу и отладку</span>
+        </div>
+        <pre># ⭐ Всегда сначала так — покажет ещё и ДИФФ конфигов:
+ansible-playbook site.yml --check --diff
+
+# Упал на 14-й задаче из 20 — продолжить с неё, а не гонять всё заново:
+ansible-playbook site.yml --start-at-task "Развернуть конфиг nginx"
+
+# Пошагово, с подтверждением каждой задачи (страшный playbook на проде):
+ansible-playbook site.yml --step
+
+# Что вообще будет выполняться и на каких хостах — до запуска:
+ansible-playbook site.yml --list-tasks
+ansible-playbook site.yml --list-hosts
+
+# ⭐ Читаемый вывод вместо простыни JSON:
+ANSIBLE_STDOUT_CALLBACK=yaml ansible-playbook site.yml
+
+# Посмотреть факты машины (пригодится для шаблонов и условий):
+ansible web01 -m setup -a 'filter=ansible_distribution*'
+ansible-inventory --graph            # структура групп глазами ansible
+
+# ⭐ Ускорение в разы на большом парке (в ansible.cfg):
+#   forks = 30            параллельность
+#   pipelining = True     меньше SSH-раундов
+#   fact_caching = jsonfile + fact_caching_timeout = 7200
+
+# Зашифровать ОДНУ строку, а не весь файл:
+ansible-vault encrypt_string 'СуперПароль' --name 'db_password'
+
+# Аккуратная раскатка релиза:
+#   serial: 2                  по две машины за раз
+#   max_fail_percentage: 20    больше 20% упало → стоп, не ломаем весь парк
+
+# ⭐ Read-only команда не должна светиться как changed:
+#   changed_when: false</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Что набивают руками каждый день</span>
+        </div>
+        <pre># ⭐ Бинарей нет в PATH — первое, что делают на новой машине:
+echo 'export PATH=$PATH:/opt/puppetlabs/bin' >> ~/.bashrc
+alias pt='puppet agent -t'
+alias ptn='puppet agent -t --noop'      # ⭐ основной рабочий алиас
+
+# ⭐⭐ ПЕРЕД любыми ручными работами — иначе агент откатит твои правки посреди дела:
+puppet agent --disable 'INC-4412, чиню базу, ~2ч'
+# ...работаешь...
+puppet agent --enable                   # НЕ ЗАБЫТЬ (частая причина «нода отстала на месяц»)
+
+# Кто отключил и почему:
+cat /opt/puppetlabs/puppet/cache/state/agent_disabled.lock
+
+# ⭐ Написать манифест по УЖЕ настроенной руками машине — Puppet сгенерит сам:
+puppet resource user deploy
+puppet resource service nginx
+puppet resource package --to_yaml | head -50
+
+# Какие атрибуты вообще есть у типа (вместо гугла):
+puppet describe user | less
+puppet describe file --providers
+
+# Быстрый прогон только нужной части каталога:
+puppet agent -t --tags profile::web::nginx
+
+# Найти, какой ресурс тормозит прогон:
+puppet agent -t --evaltrace 2>&1 | sort -t: -k2 -n | tail
+
+# ⭐ Проверка перед коммитом (в pre-commit hook):
+puppet parser validate manifests/ site-modules/
+puppet epp validate site-modules/profile/templates/*.epp
+puppet-lint --relative --no-140chars-check site-modules/
+
+# ⭐ В мониторинг — здоровье самого Puppet (иначе «агент молча умер» не заметишь):
+#   /opt/puppetlabs/puppet/cache/state/last_run_summary.yaml
+#   events.failure > 0        → прогон падает
+#   now - time.last_run > 2ч  → агент не отчитывается</pre>
+      </div>
+
+      <div class="note">
+        <strong>Три правила IaC, которые работают в любом инструменте:</strong>
+        <br>1. <strong>Сначала dry-run</strong> — <code>plan</code> / <code>--check --diff</code> / <code>--noop</code>. Ни одного «ну я и так знаю, что там».
+        <br>2. <strong>Сначала канарейка</strong> — одна машина, посмотрел метрики полчаса, потом парк.
+        <br>3. <strong>Правка руками — только с выключенным автоматом</strong> и с тикетом: в Puppet это <code>agent --disable</code>, в Terraform — <code>lifecycle { ignore_changes }</code>, иначе следующий прогон честно снесёт твою «временную» правку.
+      </div>
+
+      <div class="note">
+        <strong>Что кладут в pre-commit на любом IaC-репозитории:</strong> <code>terraform fmt -check</code> + <code>tflint</code>, <code>ansible-lint</code> + <code>--syntax-check</code>, <code>puppet parser validate</code> + <code>puppet-lint</code>, и обязательно <strong>сканер секретов</strong> (gitleaks / detect-secrets) — потому что самый дорогой инцидент в IaC это не сломанный apply, а пароль, уехавший в публичный git.
+      </div>
+
     </section>
 
   </div>
