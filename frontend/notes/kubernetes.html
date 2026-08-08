@@ -232,6 +232,10 @@ Secret      — то же, но для ПАРОЛЕЙ, токенов, ключ�
       <h2 id="kubernetes-s6">kubectl — главные команды</h2>
       <p><code>kubectl</code> (кубоконтроль) — это <code>docker</code> CLI, но для всего кластера. Через него идёт всё общение с <code>kube-apiserver</code>.</p>
 
+      <div class="note">
+        🔗 <strong>kubectl — это HTTP-клиент</strong>, и это можно увидеть глазами: <code>kubectl get pods -v=8</code> покажет полный запрос к <code>kube-apiserver</code> — метод, путь, заголовки, токен. Отсюда следует практика: что умеет kubectl, то можно сделать и обычным <code>curl</code> (а значит — автоматизировать без него). Подробнее — в разделе <a href="api.html#api-s5" style="color:#58a6ff;">API</a>.
+      </div>
+
       <div class="code-block">
         <div class="code-header">
           <span class="lang">BASH</span>

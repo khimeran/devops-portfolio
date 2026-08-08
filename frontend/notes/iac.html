@@ -67,6 +67,7 @@
 
       <h2 id="iac-s0">🌍 Terraform — создаём инфраструктуру</h2>
       <p>Terraform отвечает за <strong>слой 1</strong>: создать то, чего ещё нет. Виртуалки, сети, диски, балансировщики, DNS, managed-базы — через API облака. Настройкой операционной системы внутри машины он не занимается.</p>
+      <p style="color:#8b949e;">🔗 Провайдер Terraform — это, по сути, обёртка над HTTP-API облака: то же самое можно сделать голым <code>curl</code>, только руками и без state. Как устроены такие API — в разделе <a href="api.html" style="color:#58a6ff;">API</a>.</p>
 
       <h3>Жизненный цикл</h3>
       <p>HashiCorp, написан на Go в 2014-м. Multi-cloud — один синтаксис работает в AWS, GCP, Azure, Yandex Cloud, локальном Docker'е. С 2023-го у HashiCorp поменялась лицензия (BSL), сообщество форкнуло в <strong>OpenTofu</strong> — полностью совместимый, более «свободный». Синтаксис идентичный, команда <code>tofu</code> вместо <code>terraform</code>.</p>
@@ -551,6 +552,7 @@ ansible-playbook -i inventory/prod_web.ini site.yml --limit webservers
 
       <h2 id="iac-s1">🤖 Ansible — настраиваем push-моделью</h2>
       <p>Ansible отвечает за <strong>слой 3</strong>: привести уже существующую машину к нужному состоянию. Агентов не требует — приходит по SSH, делает работу и уходит. Базовый конспект (inventory, playbook, идемпотентность, установка агентов) — в разделе <a href="ansible.html" style="color:#58a6ff;">Ansible</a>; здесь — то, что относится к IaC.</p>
+      <p style="color:#8b949e;">🔗 Ansible умеет не только SSH: модуль <code>uri</code> — это тот же <code>curl</code>, только идемпотентный и с проверками, им дёргают <a href="api.html" style="color:#58a6ff;">API</a> облаков, балансировщиков и приёмку после установки.</p>
 
       <h3>Структура прод-репозитория</h3>
       <p>Полный конспект по Ansible (inventory, playbook, идемпотентность, установка агентов) — в разделе <a href="ansible.html" style="color:#58a6ff;">Ansible</a>. Здесь — то, что относится именно к IaC: как выглядит настоящий репозиторий и почему он выглядит именно так.</p>

@@ -26,6 +26,12 @@
         <strong>Аналогия:</strong> Prometheus — это бортовой компьютер машины: постоянно записывает скорость, обороты, температуру. Grafana — это приборная панель: берёт эти данные и показывает красивыми стрелками и графиками.
       </div>
 
+      <div class="note">
+        🔗 <strong>Под капотом это обычный HTTP:</strong> scraping — это <code>GET /metrics</code> у экспортёра, а запросы к самому Prometheus идут в его HTTP API. Кто сейчас лежит, одной командой:
+        <br><code>curl -sG http://prometheus:9090/api/v1/query --data-urlencode 'query=up == 0' | jq -r '.data.result[].metric.instance'</code>
+        <br>Разбор методов, кодов и <code>curl</code> — в разделе <a href="api.html#api-s5" style="color:#58a6ff;">API</a>. Как ставить экспортёры на весь парк — в <a href="iac.html#iac-s2" style="color:#58a6ff;">IaC</a>.
+      </div>
+
       <h2 id="prometheus-grafana-s0">Как работает scraping</h2>
 
       <div class="code-block">

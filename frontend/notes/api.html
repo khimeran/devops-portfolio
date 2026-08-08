@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps — 🔌 API — интерфейсы, HTTP и curl</title>
+  <link rel="stylesheet" href="notes.css">
+</head>
+<body>
+
+  <div class="sidebar">
+    <h2>Конспекты</h2>
+    <input type="text" id="nav-filter" placeholder="🔍 поиск по разделам…" autocomplete="off">
+    <nav id="nav"></nav>
+  </div>
+
+  <div class="content">
+    <a href="../index.html" class="home-link">← Главная</a>
+    <a href="../learning_plan.html" class="home-link" style="margin-left:1rem;">🗺 План обучения</a>
+
+    <section id="api">
+      <h1>🔌 API — интерфейсы, HTTP и curl</h1>
+      <p><strong>API</strong> (Application Programming Interface) — способ одной программы попросить что-то у другой. Не «страница для человека», а <strong>интерфейс для машин</strong>: строгий формат запроса, строгий формат ответа. Для DevOps это базовый навык — потому что <em>всё вокруг является API</em>: Docker, Kubernetes, Prometheus, GitHub, облако, Puppet. Даже <code>kubectl</code> и <code>terraform</code> внутри просто ходят по HTTP.</p>
+
+      <div class="note">
+        <strong>Аналогия:</strong> ресторан. Кухня (сервер) не пускает тебя внутрь и не даёт трогать плиту. Есть <strong>официант</strong> (API) и <strong>меню</strong> (документация): говоришь строго по меню — получаешь блюдо. Скажешь не по формату — получишь «такого нет» (404) или «так нельзя» (400). Официант не даст тебе больше, чем разрешено, и не покажет чужие заказы (403).
+      </div>
+
+      <h2 id="api-s0">Что такое API и какие они бывают</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>API — это контракт</span>
+        </div>
+        <pre>API = договор между двумя программами:
+   «Пришли мне ТАКОЙ запрос по ТАКОМУ адресу — я верну ТАКОЙ ответ»
+
+Из чего состоит договор:
+   АДРЕС     https://api.github.com/repos/khimeran/devops-portfolio
+   МЕТОД     GET (прочитать) / POST (создать) / DELETE (удалить)…
+   ЗАГОЛОВКИ кто я (токен), в каком формате шлю и жду ответ
+   ТЕЛО      данные (обычно JSON) — для POST/PUT/PATCH
+   ОТВЕТ     код статуса (200, 404, 500) + тело (обычно JSON)
+
+⭐ Ключевая мысль: сайт и API — это ОДИН И ТОТ ЖЕ HTTP.
+   Разница только в том, что сайт отдаёт HTML для глаз,
+   а API отдаёт JSON для кода.</pre>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-title">Виды API — что встретишь и чем отличаются</div>
+        <table class="cmp">
+          <thead><tr><th>Тип</th><th>Как выглядит</th><th>Где встретишь</th><th>Особенность</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>REST / HTTP</strong><br><em>99% случаев</em></td>
+              <td><code>GET /api/v1/users/42</code> → JSON</td>
+              <td>GitHub, Docker, Kubernetes, Prometheus, любое веб-приложение</td>
+              <td>Ресурс = URL, действие = HTTP-метод. Читается глазами, тестируется <code>curl</code></td>
+            </tr>
+            <tr>
+              <td>GraphQL</td>
+              <td>Один URL <code>/graphql</code>, запрос описывает нужные поля</td>
+              <td>GitHub v4, современные фронтенды</td>
+              <td>Клиент сам решает, какие поля забрать — нет лишних данных, но сложнее кэшировать</td>
+            </tr>
+            <tr>
+              <td>gRPC</td>
+              <td>Бинарный протокол поверх HTTP/2, схема в <code>.proto</code></td>
+              <td>Внутренние сервисы, k8s-компоненты, высоконагруженное</td>
+              <td>Быстрый и строго типизированный, но <code>curl</code> его не прочитает — нужен <code>grpcurl</code></td>
+            </tr>
+            <tr>
+              <td>SOAP / XML-RPC</td>
+              <td>XML-конверты, <code>WSDL</code>-описание</td>
+              <td>Легаси: банки, госуслуги, 1С, телеком</td>
+              <td>Тяжёлый и многословный. Новое на нём не пишут, но поддерживать приходится</td>
+            </tr>
+            <tr>
+              <td>WebSocket</td>
+              <td><code>wss://</code>, соединение держится открытым</td>
+              <td>Чаты, live-дашборды, стриминг логов</td>
+              <td>Двусторонний канал: сервер может слать сам, не дожидаясь запроса</td>
+            </tr>
+            <tr>
+              <td><strong>Webhook</strong></td>
+              <td>Обычный HTTP POST, но <em>к тебе</em></td>
+              <td>GitHub → CI, Alertmanager → Telegram, платёжки</td>
+              <td>Перевёрнутый API: не ты спрашиваешь, а тебе присылают событие. Нужен публичный URL</td>
+            </tr>
+            <tr>
+              <td>Unix-socket API</td>
+              <td><code>/var/run/docker.sock</code></td>
+              <td>Docker, systemd, containerd</td>
+              <td>Тот же HTTP, но через файл-сокет, а не через сеть</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <strong>Главный вывод:</strong> научился REST + <code>curl</code> — умеешь работать с 90% инструментов DevOps. Остальные типы встречаются точечно, и подход к ним такой же: найти документацию, повторить один запрос руками, потом завернуть в скрипт.
+      </div>
+
+      <h2 id="api-s1">Анатомия HTTP-запроса: методы, статусы, заголовки</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАЗБОР</span>
+          <span>Из чего состоит запрос и ответ</span>
+        </div>
+        <pre>─── ЗАПРОС ────────────────────────────────────────────────────────
+POST /api/v1/topics?verbose=true HTTP/1.1        ← метод, путь, версия
+Host: api.example.com                            ← ⭐ КОМУ (по нему nginx выберет сайт)
+Authorization: Bearer eyJhbGci...                ← кто я
+Content-Type: application/json                   ← в каком формате ШЛЮ
+Accept: application/json                         ← в каком формате ЖДУ ответ
+User-Agent: curl/8.6.0
+
+{"title": "Ansible", "progress": 40}             ← ТЕЛО (после пустой строки)
+
+─── ОТВЕТ ─────────────────────────────────────────────────────────
+HTTP/1.1 201 Created                             ← ⭐ КОД СТАТУСА
+Content-Type: application/json
+Location: /api/v1/topics/7                       ← где теперь лежит созданное
+
+{"id": 7, "title": "Ansible", "progress": 40}
+
+─── АДРЕС ПО ЧАСТЯМ ───────────────────────────────────────────────
+https://api.example.com:443/api/v1/topics?limit=10&amp;page=2#fragment
+└─┬──┘ └──────┬───────┘└┬┘└─────┬──────┘└──────┬───────┘└───┬───┘
+схема      хост       порт    путь         query-строка   якорь
+                                           (параметры)   (до сервера НЕ доходит)</pre>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-title">HTTP-методы — что делают и чем отличаются</div>
+        <table class="cmp">
+          <thead><tr><th>Метод</th><th>Смысл</th><th>Тело</th><th>Идемпотентен*</th><th>Пример</th></tr></thead>
+          <tbody>
+            <tr><td><strong>GET</strong></td><td>Прочитать. Ничего не меняет</td><td class="no">нет</td><td class="yes">да</td><td><code>GET /topics</code></td></tr>
+            <tr><td><strong>POST</strong></td><td>Создать новое / запустить действие</td><td class="yes">да</td><td class="no">нет ⚠️</td><td><code>POST /topics</code></td></tr>
+            <tr><td><strong>PUT</strong></td><td>Заменить объект целиком</td><td class="yes">да</td><td class="yes">да</td><td><code>PUT /topics/7</code></td></tr>
+            <tr><td><strong>PATCH</strong></td><td>Поменять часть полей</td><td class="yes">да</td><td class="mid">обычно да</td><td><code>PATCH /topics/7</code></td></tr>
+            <tr><td><strong>DELETE</strong></td><td>Удалить</td><td class="mid">редко</td><td class="yes">да</td><td><code>DELETE /topics/7</code></td></tr>
+            <tr><td>HEAD</td><td>Как GET, но только заголовки, без тела</td><td class="no">нет</td><td class="yes">да</td><td>проверить, жив ли URL</td></tr>
+            <tr><td>OPTIONS</td><td>«Что тут вообще можно?»</td><td class="no">нет</td><td class="yes">да</td><td>CORS-preflight браузера</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="color:#8b949e;font-size:0.85rem;">* Идемпотентный = повтори 10 раз, результат как от одного раза. Тот же принцип, что в Ansible и Puppet. Именно поэтому <strong>POST опасно ретраить</strong>: создаст 10 объектов.</p>
+
+      <div class="table-wrap">
+        <div class="table-title">Коды ответа — что они означают на практике</div>
+        <table class="cmp">
+          <thead><tr><th>Код</th><th>Значение</th><th>Что делать</th></tr></thead>
+          <tbody>
+            <tr><td class="yes">200 OK</td><td>Всё хорошо, ответ в теле</td><td>—</td></tr>
+            <tr><td class="yes">201 Created</td><td>Объект создан, ссылка в заголовке <code>Location</code></td><td>—</td></tr>
+            <tr><td class="yes">204 No Content</td><td>Сделано, но отвечать нечем (типично для DELETE)</td><td>Не искать тело — его нет</td></tr>
+            <tr><td class="mid">301 / 308</td><td>Переехало навсегда</td><td>Идти по новому адресу, <code>curl -L</code>. Браузер запомнит</td></tr>
+            <tr><td class="mid">302 / 307</td><td>Временно тут</td><td>То же, но не кэшировать</td></tr>
+            <tr><td class="mid">304 Not Modified</td><td>Не менялось с прошлого раза</td><td>Брать из кэша (работает по <code>ETag</code>)</td></tr>
+            <tr><td class="no">400 Bad Request</td><td>Кривой запрос: сломан JSON, не тот тип</td><td>Читать тело ответа — там написано, что не так</td></tr>
+            <tr><td class="no">401 Unauthorized</td><td><strong>Я тебя не узнал</strong>: токена нет, протух, неверный</td><td>Проверить <code>Authorization</code>, обновить токен</td></tr>
+            <tr><td class="no">403 Forbidden</td><td><strong>Узнал, но тебе нельзя</strong>: не хватает прав</td><td>Права/скоупы токена, RBAC. Токен менять бесполезно</td></tr>
+            <tr><td class="no">404 Not Found</td><td>Нет такого адреса или объекта</td><td>Проверить путь, версию (<code>/v1/</code>), id</td></tr>
+            <tr><td class="no">409 Conflict</td><td>Конфликт: уже существует, версия устарела</td><td>Перечитать объект и повторить</td></tr>
+            <tr><td class="no">422 Unprocessable</td><td>Формат верный, но данные не проходят валидацию</td><td>Любимый код FastAPI: в теле — список полей с ошибками</td></tr>
+            <tr><td class="no">429 Too Many Requests</td><td>Превышен лимит запросов</td><td>Ждать <code>Retry-After</code>, снизить темп</td></tr>
+            <tr><td class="no">500 Internal Error</td><td>Упало у них внутри</td><td>Смотреть логи <strong>приложения</strong></td></tr>
+            <tr><td class="no">502 Bad Gateway</td><td>Прокси не достучался до бэкенда</td><td>⭐ Бэкенд лежит / не тот порт / SELinux. Логи <strong>nginx</strong></td></tr>
+            <tr><td class="no">503 Unavailable</td><td>Сервис временно недоступен, перегружен</td><td>Ретрай с backoff</td></tr>
+            <tr><td class="no">504 Gateway Timeout</td><td>Бэкенд жив, но <strong>не успел ответить</strong></td><td>Тяжёлый запрос или <code>proxy_read_timeout</code> мал</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <strong>Три пары, которые спрашивают на собеседовании:</strong>
+        <br>• <strong>401 vs 403</strong> — «не знаю, кто ты» против «знаю, но нельзя».
+        <br>• <strong>502 vs 504</strong> — «не смог соединиться с бэкендом» против «соединился, но ответа не дождался». Разбор со стороны nginx — в разделе <a href="nginx.html" style="color:#58a6ff;">nginx</a>.
+        <br>• <strong>4xx vs 5xx</strong> — 4xx это <em>твоя</em> вина (запрос кривой), 5xx — <em>их</em> (сервер сломался). Начинать чинить нужно с разных сторон.
+      </div>
+
+      <h2 id="api-s2">curl — главный инструмент: флаги и отладка</h2>
+      <p><code>curl</code> — это «сделай HTTP-запрос из терминала». Умеет всё, что умеет браузер, только без картинок и без CORS. В DevOps им проверяют живость сервисов, дёргают API, отлаживают редиректы и TLS.</p>
+
+      <div class="table-wrap">
+        <div class="table-title">Флаги curl, которые нужны в реальной работе</div>
+        <table class="cmp">
+          <thead><tr><th>Флаг</th><th>Что делает</th><th>Когда нужен</th></tr></thead>
+          <tbody>
+            <tr><td><code>-X МЕТОД</code></td><td>Задать метод явно</td><td>Для DELETE/PUT. С <code>-d</code> метод и так станет POST</td></tr>
+            <tr><td><code>-H "K: V"</code></td><td>Добавить заголовок</td><td>Токен, <code>Content-Type</code>, <code>Host</code>. Можно много раз</td></tr>
+            <tr><td><code>-d '…'</code></td><td>Тело запроса</td><td>⚠️ Автоматически делает POST и ставит <code>Content-Type: x-www-form-urlencoded</code> — для JSON заголовок задавать вручную</td></tr>
+            <tr><td><code>--json '…'</code></td><td>Тело + оба JSON-заголовка сразу</td><td>Современная замена связки <code>-d</code> + <code>-H</code> (curl 7.82+)</td></tr>
+            <tr><td><code>-i</code></td><td>Показать заголовки ответа <strong>и</strong> тело</td><td>Самый быстрый способ увидеть код и <code>Location</code></td></tr>
+            <tr><td><code>-I</code></td><td>Только заголовки (HEAD-запрос)</td><td>⭐ Проверить редирект, не качая страницу</td></tr>
+            <tr><td><code>-v</code> / <code>-vv</code></td><td>Показать весь диалог: TLS, запрос, ответ</td><td>⭐ Главный флаг отладки</td></tr>
+            <tr><td><code>-s</code></td><td>Тихо: без прогресс-бара</td><td>Всегда в скриптах и пайпах</td></tr>
+            <tr><td><code>-S</code></td><td>…но ошибки всё же показывать</td><td>Пара <code>-sS</code> — стандарт для скриптов</td></tr>
+            <tr><td><code>-f</code></td><td>Вернуть код возврата ≠0 при HTTP-ошибке</td><td>⭐ Без него <code>curl</code> «успешен» даже на 500</td></tr>
+            <tr><td><code>-L</code></td><td>Идти по редиректам</td><td>Когда 301/302 и нужен конечный ответ</td></tr>
+            <tr><td><code>-o файл</code> / <code>-O</code></td><td>Сохранить в файл / под именем из URL</td><td>Скачивание артефактов</td></tr>
+            <tr><td><code>-u user:pass</code></td><td>Basic-авторизация</td><td>Простые внутренние сервисы, nginx <code>auth_basic</code></td></tr>
+            <tr><td><code>-k</code></td><td>Не проверять сертификат</td><td>⚠️ Только для самоподписанных в тесте. На проде — <code>--cacert</code></td></tr>
+            <tr><td><code>--resolve host:port:IP</code></td><td>Подменить DNS для запроса</td><td>⭐⭐ Проверить новый сервер до переключения DNS</td></tr>
+            <tr><td><code>-x proxy</code></td><td>Идти через прокси</td><td>Корпоративная сеть</td></tr>
+            <tr><td><code>--max-time N</code></td><td>Общий таймаут</td><td>Обязателен в мониторинге и скриптах</td></tr>
+            <tr><td><code>--retry N</code></td><td>Повторить при сбое</td><td>Плюс <code>--retry-delay</code>, <code>--retry-connrefused</code></td></tr>
+            <tr><td><code>-w '…'</code></td><td>Напечатать метрики после ответа</td><td>Замер времени: DNS, connect, TLS, полный ответ</td></tr>
+            <tr><td><code>--unix-socket</code></td><td>Ходить в unix-сокет</td><td>Docker API</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Боевые примеры на каждый день</span>
+        </div>
+        <pre># GET с параметрами (кавычки обязательны — иначе &amp; уведёт в фон!)
+curl -s "http://localhost:8000/topics?limit=10&amp;page=2"
+
+# ⭐ POST с JSON — классическая связка
+curl -sS -X POST http://localhost:8000/topics \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Ansible","progress":40}'
+
+# то же самое, современно и короче:
+curl -sS --json '{"title":"Ansible","progress":40}' http://localhost:8000/topics
+
+# тело из файла (когда JSON большой):
+curl -sS --json @payload.json http://localhost:8000/topics
+
+# GET, но параметры из -d (curl сам склеит в query-строку):
+curl -sG -d 'query=up' -d 'time=2026-08-08T12:00:00Z' \
+  http://prometheus:9090/api/v1/query
+
+# ⭐ Только код ответа — для мониторинга и CI:
+curl -s -o /dev/null -w '%{http_code}\n' https://example.com/healthz
+
+# ⭐ Где тормозит: DNS, коннект, TLS или сам сервер:
+curl -s -o /dev/null -w \
+  'dns=%{time_namelookup} connect=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer} total=%{time_total}\n' \
+  https://example.com
+
+# ⭐⭐ Проверить НОВЫЙ сервер по боевому домену ДО переключения DNS:
+curl -I --resolve example.com:443:203.0.113.10 https://example.com
+
+# Загрузка файла (multipart, как форма в браузере):
+curl -sS -F "file=@report.pdf" -F "comment=отчёт" http://localhost:8000/upload
+
+# Скачать артефакт с проверкой ошибок и повторами:
+curl -fsSL --retry 3 --retry-delay 2 -o app.tar.gz https://nexus/app-1.2.3.tar.gz
+
+# Сохранить cookies и переиспользовать (сессионная авторизация):
+curl -sc jar.txt -d 'user=admin&amp;pass=secret' http://app/login
+curl -sb jar.txt http://app/profile</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">DEBUG</span>
+          <span>Как читать вывод <code>curl -v</code></span>
+        </div>
+        <pre>$ curl -v https://example.com/api/health
+
+*   Trying 203.0.113.10:443...            ← * = что делает сам curl
+* Connected to example.com (203.0.113.10) port 443    ⭐ DNS уже отработал
+* TLS 1.3 / TLSv1.3 (IN), server certificate verify ok ⭐ сертификат принят
+* using HTTP/2
+
+> GET /api/health HTTP/2                  ← > = ЧТО ОТПРАВИЛИ МЫ
+> Host: example.com                       ⭐ по нему сервер выберет сайт
+> user-agent: curl/8.6.0
+> accept: */*
+
+< HTTP/2 200                              ← < = ЧТО ОТВЕТИЛ СЕРВЕР
+< content-type: application/json
+< server: nginx/1.24.0
+
+{"status":"ok"}                           ← тело ответа
+
+# ЧИТАЕТСЯ ТАК:
+#   не дошло до "Trying"        → не резолвится DNS
+#   застряло на "Trying"        → фаервол/порт закрыт/нет маршрута
+#   ошибка на TLS               → сертификат, SNI, протокол
+#   есть "&lt; HTTP/…" с 4xx/5xx   → сеть в порядке, проблема в приложении</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">JQ</span>
+          <span>Ответ пришёл — как его разобрать</span>
+        </div>
+        <pre># Красиво напечатать (без jq — питоном):
+curl -s http://localhost:8000/topics | python3 -m json.tool
+curl -s http://localhost:8000/topics | jq            # с подсветкой
+
+# Достать одно поле:
+curl -s http://api/user | jq -r '.login'             # -r = без кавычек
+
+# Пройтись по массиву:
+curl -s http://api/topics | jq -r '.[] | "\(.id)\t\(.title)"'
+
+# Отфильтровать:
+curl -s http://api/topics | jq '[.[] | select(.progress &lt; 50)]'
+
+# Сколько элементов:
+curl -s http://api/topics | jq 'length'
+
+# ⭐ Достать токен из ответа авторизации в переменную:
+TOKEN=$(curl -s --json '{"user":"admin","pass":"secret"}' http://api/login | jq -r '.access_token')
+curl -s -H "Authorization: Bearer $TOKEN" http://api/private</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Частые грабли curl</div>
+        <pre>1. curl http://api?a=1&amp;b=2     → "&amp;" уводит команду в фон!
+   ✅ ВСЕГДА кавычки: curl "http://api?a=1&amp;b=2"
+
+2. -d '{"a":1}' без -H         → уйдёт как form-urlencoded, сервер вернёт 400/422
+   ✅ -H "Content-Type: application/json" или --json
+
+3. curl вернул 500, а скрипт продолжил работу
+   ✅ -f (или --fail-with-body), иначе код возврата 0 на любой HTTP-ошибке
+
+4. Токен прямо в командной строке
+   ⚠️ попадёт в ~/.bash_history и в ps у соседних процессов
+   ✅ -H "Authorization: Bearer $TOKEN" с export, или --netrc
+
+5. -k «чтобы заработало»
+   ⚠️ отключает проверку сертификата целиком = MITM возможен
+   ✅ --cacert /path/ca.pem или добавить CA в систему
+
+6. Одинарные кавычки внутри JSON с переменными bash
+   ✅ либо --json @file.json, либо аккуратно: -d "{\"x\":\"$VAL\"}"</pre>
+      </div>
+
+      <h2 id="api-s3">Аутентификация: ключи, Basic, Bearer, OAuth</h2>
+
+      <div class="table-wrap">
+        <div class="table-title">Способы «доказать, что ты — это ты»</div>
+        <table class="cmp">
+          <thead><tr><th>Способ</th><th>Как выглядит</th><th>Где встречается</th><th>Нюанс</th></tr></thead>
+          <tbody>
+            <tr><td>API-key</td><td><code>X-API-Key: abc123</code> или <code>?api_key=abc123</code></td><td>Простые сервисы, погода, SMS-шлюзы</td><td>⚠️ Ключ в URL попадёт в логи nginx и историю браузера</td></tr>
+            <tr><td>Basic</td><td><code>Authorization: Basic base64(user:pass)</code></td><td>nginx <code>auth_basic</code>, внутренние панели</td><td>Base64 — это <strong>не шифрование</strong>. Только поверх HTTPS</td></tr>
+            <tr><td><strong>Bearer / JWT</strong></td><td><code>Authorization: Bearer eyJhbGci…</code></td><td>Большинство современных API, k8s</td><td>Токен с сроком жизни. Протух → 401, нужно обновить</td></tr>
+            <tr><td>OAuth 2.0</td><td>Сначала получаешь токен, потом ходишь с ним</td><td>GitHub, Google, корпоративный SSO</td><td>Для машин — flow <code>client_credentials</code></td></tr>
+            <tr><td>mTLS</td><td>Клиент предъявляет свой сертификат</td><td>Puppet, k8s-компоненты, банки</td><td>Самый строгий: без ключа даже соединение не встанет</td></tr>
+            <tr><td>Подпись webhook</td><td><code>X-Hub-Signature-256: sha256=…</code></td><td>GitHub, платёжки — когда стучатся <em>к тебе</em></td><td>⭐ Обязательно проверять, иначе кто угодно подделает событие</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Как это выглядит в командах</span>
+        </div>
+        <pre># Basic:
+curl -u admin:secret https://internal.example.com/metrics
+
+# API-key заголовком (лучше, чем в URL):
+curl -H "X-API-Key: $API_KEY" https://api.weather.example/v1/now
+
+# ⭐ Bearer — самый частый вариант:
+export TOKEN='eyJhbGciOiJIUzI1NiIs...'
+curl -H "Authorization: Bearer $TOKEN" https://api.github.com/user
+
+# OAuth2 client_credentials — «логин для машин»:
+TOKEN=$(curl -s -X POST https://auth.example.com/oauth/token \
+  -d 'grant_type=client_credentials' \
+  -d "client_id=$CID" -d "client_secret=$CSECRET" | jq -r .access_token)
+
+# mTLS — предъявляем свой сертификат:
+curl --cert client.pem --key client-key.pem --cacert ca.pem https://api.internal/
+
+# JWT — посмотреть, что внутри токена (он НЕ зашифрован, просто base64):
+echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq
+#   увидишь sub (кто), exp (когда протухнет), scope/roles (что можно)
+#   ⚠️ раз содержимое читается кем угодно — секретов внутрь JWT не кладут</pre>
+      </div>
+
+      <div class="note">
+        <strong>Гигиена токенов:</strong> не в URL (осядет в логах прокси), не в git (сканеры вроде gitleaks ловят это в pre-commit), не в <code>history</code> (используй переменные окружения или <code>~/.netrc</code> с правами <code>600</code>), у токена должен быть срок жизни и минимальный набор прав. Утёк — <strong>отзывать</strong>, а не «менять пароль потом». То же правило, что для секретов в <a href="iac.html#iac-s2" style="color:#58a6ff;">IaC</a>: eyaml/vault/ansible-vault существуют ровно для этого.
+      </div>
+
+      <h2 id="api-s4">Как работать с незнакомым API</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПРОЦЕДУРА</span>
+          <span>Порядок действий, который всегда работает</span>
+        </div>
+        <pre>1. НАЙТИ ДОКУМЕНТАЦИЮ. У 90% сервисов она машинная:
+      /docs         Swagger UI (FastAPI даёт бесплатно) — можно кликать прямо там
+      /redoc        та же схема, другой вид
+      /openapi.json машинное описание всех эндпоинтов
+      /api/v1/      часто отдаёт список доступных путей
+
+2. ПОВТОРИТЬ ОДИН ЗАПРОС РУКАМИ через curl. Не писать код, пока
+   в терминале не получил 200. ⭐ Половина проблем отваливается здесь.
+
+3. РАЗОБРАТЬСЯ С АВТОРИЗАЦИЕЙ. 401 — токен; 403 — права.
+
+4. ПРОЧИТАТЬ ПРО ПАГИНАЦИЮ. Почти всегда отдаётся не всё сразу.
+
+5. УЗНАТЬ ЛИМИТЫ. 429 в проде посреди ночи — обидно.
+
+6. ЗАВЕРНУТЬ В СКРИПТ. curl + jq, а лучше — готовый клиент/модуль
+   (ansible uri, python requests, terraform provider).
+
+# Быстрый способ подсмотреть, какой запрос шлёт готовый инструмент:
+kubectl get pods -v=8              # покажет полный HTTP-запрос к kube-apiserver
+gh api /user --verbose             # то же для GitHub CLI
+# ⭐ Отличный трюк: инструмент показывает, как правильно, а ты копируешь в curl.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PATTERNS</span>
+          <span>Пагинация, лимиты, версии, идемпотентность</span>
+        </div>
+        <pre># ── ПАГИНАЦИЯ — три распространённые схемы ──────────────────────
+?page=2&amp;per_page=100              страницами (GitHub)
+?limit=100&amp;offset=200             смещением (SQL-подобно)
+?cursor=eyJpZCI6MTAwfQ            курсором (стабильно при вставках)
+
+# Сколько всего — часто в заголовках:
+Link: &lt;https://api/repos?page=3&gt;; rel="next", &lt;…?page=9&gt;; rel="last"
+X-Total-Count: 842
+
+# Забрать ВСЁ в цикле:
+page=1
+while :; do
+  data=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api/items?page=$page&amp;per_page=100")
+  [ "$(echo "$data" | jq 'length')" -eq 0 ] &amp;&amp; break
+  echo "$data" | jq -r '.[].name'
+  page=$((page+1))
+done
+
+# ── RATE LIMIT ──────────────────────────────────────────────────
+X-RateLimit-Limit: 5000
+X-RateLimit-Remaining: 12         ⭐ следить за этим
+X-RateLimit-Reset: 1754650000     unixtime, когда обнулится
+Retry-After: 30                   при 429 — сколько ждать секунд
+
+# ── ВЕРСИОНИРОВАНИЕ ─────────────────────────────────────────────
+/api/v1/users                     в пути — самое частое и понятное
+Accept: application/vnd.github+json; version=3     в заголовке
+# ⭐ Никогда не хардкодь URL без версии: сломается на их релизе
+
+# ── ИДЕМПОТЕНТНОСТЬ ─────────────────────────────────────────────
+POST /payments
+Idempotency-Key: 6f1e...          ⭐ повторный POST с тем же ключом
+                                     не создаст второй платёж
+# Так делают платёжные API. Если ключа нет — ретраить POST нельзя.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CORS</span>
+          <span>⭐ «Из curl работает, из браузера — нет»</span>
+        </div>
+        <pre>Симптом в консоли браузера:
+   Access to fetch at 'https://api.example.com/data' from origin
+   'https://site.example.com' has been blocked by CORS policy
+
+ЧТО ПРОИСХОДИТ:
+   CORS — это ограничение БРАУЗЕРА, а не сервера и не сети.
+   Браузер запрещает JS со страницы site.example.com читать ответы
+   с ДРУГОГО домена, если тот явно не разрешил.
+   ⭐ curl никаких CORS не знает — поэтому у тебя «в терминале работает».
+
+КАК БРАУЗЕР ПРОВЕРЯЕТ (preflight):
+   OPTIONS /data                       ← сначала спрашивает разрешение
+   Origin: https://site.example.com
+   Access-Control-Request-Method: POST
+   ↓ сервер должен ответить:
+   Access-Control-Allow-Origin: https://site.example.com
+   Access-Control-Allow-Methods: GET, POST, OPTIONS
+   Access-Control-Allow-Headers: Content-Type, Authorization
+
+ЛЕЧЕНИЕ (в порядке правильности):
+   1. ⭐ Отдавать фронт и API с ОДНОГО домена через nginx:
+         /      → фронтенд
+         /api/  → proxy_pass на бэкенд
+      Тогда CORS вообще не возникает — origin один и тот же.
+   2. Настроить CORS в приложении (FastAPI: CORSMiddleware).
+   3. Прописать заголовки в nginx (если приложение трогать нельзя).
+   ⛔ Allow-Origin: * на API с авторизацией — так не делают.
+
+# Проверить preflight руками:
+curl -i -X OPTIONS https://api.example.com/data \
+  -H "Origin: https://site.example.com" \
+  -H "Access-Control-Request-Method: POST"</pre>
+      </div>
+
+      <h2 id="api-s5">API в работе DevOps: всё вокруг — API</h2>
+      <p>Инструменты, которыми ты пользуешься каждый день, — это клиенты к HTTP-API. Понимая это, можно автоматизировать что угодно без ожидания «а есть ли для этого команда».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Однострочники, которые реально пригождаются</span>
+        </div>
+        <pre># ── DOCKER (API через unix-сокет) ───────────────────────────────
+curl -s --unix-socket /var/run/docker.sock http://localhost/containers/json | jq -r '.[].Names[0]'
+curl -s --unix-socket /var/run/docker.sock http://localhost/version | jq .ApiVersion
+#   ⚠️ доступ к docker.sock = фактически root на хосте. Не монтировать в контейнеры бездумно.
+
+# ── KUBERNETES ──────────────────────────────────────────────────
+kubectl get pods -v=8                     # ⭐ показать, какой HTTP-запрос ушёл
+kubectl proxy --port=8001 &amp;               # локальный доступ без токенов
+curl -s localhost:8001/api/v1/namespaces/default/pods | jq -r '.items[].metadata.name'
+
+# ── PROMETHEUS (мониторинг — тоже просто HTTP) ──────────────────
+curl -sG http://prometheus:9090/api/v1/query --data-urlencode 'query=up == 0' \
+  | jq -r '.data.result[].metric.instance'          # ⭐ кто сейчас лежит
+curl -s http://prometheus:9090/api/v1/targets | jq -r '.data.activeTargets[] | "\(.health)\t\(.labels.instance)"'
+
+# ── ALERTMANAGER: заглушить алерты на время работ ───────────────
+curl -s http://alertmanager:9093/api/v2/alerts | jq -r '.[].labels.alertname'
+
+# ── GITHUB ──────────────────────────────────────────────────────
+curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user | jq -r .login
+curl -s https://api.github.com/repos/khimeran/devops-portfolio | jq '{stars:.stargazers_count, issues:.open_issues}'
+#   ⭐ Запустить workflow руками:
+curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" \
+  https://api.github.com/repos/USER/REPO/actions/workflows/pages.yml/dispatches \
+  --json '{"ref":"main"}'
+
+# ── СВОЁ ПРИЛОЖЕНИЕ (FastAPI из этого проекта) ──────────────────
+curl -s http://localhost:8000/topics | jq -r '.[] | "\(.title): \(.progress)%"'
+curl -s http://localhost:8000/openapi.json | jq -r '.paths | keys[]'   # ⭐ список всех эндпоинтов</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Healthcheck-скрипт: как API проверяют в мониторинге</span>
+        </div>
+        <pre>#!/usr/bin/env bash
+set -euo pipefail
+
+URL="https://api.example.com/healthz"
+
+# -f: HTTP-ошибка = ненулевой код возврата
+# -s -S: тихо, но ошибки показать
+# --max-time: не висеть вечно
+# -w: забрать код и время ответа
+read -r code time_total &lt; &lt;(
+  curl -fsS --max-time 5 -o /tmp/body.json \
+       -w '%{http_code} %{time_total}\n' "$URL"
+) || { echo "CRITICAL: $URL недоступен"; exit 2; }
+
+status=$(jq -r '.status' /tmp/body.json)
+
+if [[ "$code" == "200" &amp;&amp; "$status" == "ok" ]]; then
+  echo "OK: $URL ответил за ${time_total}s"
+  exit 0
+else
+  echo "WARNING: код=$code status=$status"
+  exit 1
+fi
+
+# ⭐ Тот же принцип внутри: Prometheus blackbox_exporter, healthcheck
+#    в docker-compose, readiness-проба в Kubernetes, приёмка в Ansible
+#    (модуль uri с failed_when).</pre>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-title">Где ты уже сталкивался с API, даже не называя это так</div>
+        <table class="cmp">
+          <thead><tr><th>Инструмент</th><th>Что под капотом</th><th>Раздел</th></tr></thead>
+          <tbody>
+            <tr><td><code>kubectl</code></td><td>HTTP-запросы к kube-apiserver с токеном ServiceAccount</td><td><a href="kubernetes.html" style="color:#58a6ff;">Kubernetes</a></td></tr>
+            <tr><td><code>docker</code></td><td>HTTP через <code>/var/run/docker.sock</code></td><td><a href="docker.html" style="color:#58a6ff;">Docker</a></td></tr>
+            <tr><td><code>terraform</code></td><td>Провайдер = обёртка над API облака</td><td><a href="iac.html#iac-s0" style="color:#58a6ff;">IaC · Terraform</a></td></tr>
+            <tr><td>Ansible <code>uri</code></td><td>Тот же curl, только идемпотентно и с проверками</td><td><a href="iac.html#iac-s1" style="color:#58a6ff;">IaC · Ansible</a></td></tr>
+            <tr><td>Puppet + PuppetDB</td><td>Агент забирает каталог по HTTPS с mTLS; PuppetDB отвечает на запросы</td><td><a href="iac.html#iac-s2" style="color:#58a6ff;">IaC · Puppet</a></td></tr>
+            <tr><td>Prometheus</td><td>Скрейпит <code>/metrics</code> — обычный HTTP GET</td><td><a href="prometheus-grafana.html" style="color:#58a6ff;">Prometheus</a></td></tr>
+            <tr><td>GitHub Actions</td><td>Webhook на push + API для статусов и артефактов</td><td><a href="github-actions.html" style="color:#58a6ff;">CI/CD</a></td></tr>
+            <tr><td>nginx</td><td>Ничего не выдумывает — просто передаёт HTTP дальше</td><td><a href="nginx.html" style="color:#58a6ff;">nginx</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="api-s6">Шпаргалка и итог</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CHEATSHEET</span>
+          <span>Всё нужное на одном экране</span>
+        </div>
+        <pre># ── ПРОВЕРИТЬ ───────────────────────────────────────────────────
+curl -I URL                                только заголовки (жив? редиректит?)
+curl -sS -o /dev/null -w '%{http_code}\n' URL   только код ответа
+curl -v URL                                весь диалог: DNS → TLS → HTTP
+curl -sIL URL | grep -E 'HTTP/|location'   ⭐ цепочка редиректов целиком
+
+# ── ЗАПРОСЫ ─────────────────────────────────────────────────────
+curl -s "URL?a=1&amp;b=2"                       GET с параметрами (в кавычках!)
+curl --json '{"k":"v"}' URL                 POST с JSON
+curl -X DELETE URL -H "Authorization: Bearer $TOKEN"
+curl -F 'file=@x.pdf' URL                   загрузка файла
+curl -fsSL -o out.tgz URL                   надёжное скачивание
+
+# ── РАЗОБРАТЬ ОТВЕТ ─────────────────────────────────────────────
+| jq                     красиво
+| jq -r '.field'         одно поле без кавычек
+| jq -r '.[] | .name'    поле у каждого элемента массива
+| jq 'length'            сколько элементов
+
+# ── КОДЫ ────────────────────────────────────────────────────────
+2xx хорошо · 3xx переехало · 4xx ТЫ не прав · 5xx ОНИ сломались
+401 не узнал тебя   403 узнал, но нельзя
+404 нет адреса      422 данные не прошли валидацию
+429 сбавь темп      502 бэкенд недоступен   504 бэкенд не успел
+
+# ── ОТЛАДКА ПО ПОРЯДКУ ──────────────────────────────────────────
+1. dig домен          имя вообще резолвится?
+2. curl -v            дошло до TLS? до HTTP?
+3. curl -I            какой код и куда редиректит?
+4. логи nginx         запрос вообще долетел до сервера?
+5. логи приложения    5xx — искать здесь</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> API — это договор: адрес + метод + заголовки + тело → код ответа + JSON. 99% того, что встретишь, — REST поверх обычного HTTP, поэтому <code>curl</code> с <code>jq</code> закрывают почти любую задачу. Ключевые различия, которые надо помнить: <strong>401 vs 403</strong>, <strong>502 vs 504</strong>, <strong>4xx vs 5xx</strong>, идемпотентность методов (POST ретраить нельзя без <code>Idempotency-Key</code>). Авторизация — почти всегда <code>Authorization: Bearer</code>, токен держать в переменной окружения, а не в URL и не в git. «Из curl работает, а из браузера нет» — это <strong>CORS</strong>, и правильное лечение чаще всего архитектурное: отдавать фронт и API с одного домена через nginx. И главное — <em>всё вокруг API</em>: kubectl, docker, terraform, Prometheus внутри делают ровно те же HTTP-запросы, которые ты умеешь повторить руками.
+      </div>
+    </section>
+
+  </div>
+
+  <div class="fab-stack" id="fabStack">
+    <button class="fab" id="fabSection" title="В начало этого раздела">
+      <span class="fab-icon">🐦</span><span class="fab-label">В начало раздела</span>
+    </button>
+    <button class="fab" id="fabHome" title="В самое начало конспектов — Linux, главная, план">
+      <span class="fab-icon">✈️</span><span class="fab-label">В самое начало</span>
+    </button>
+  </div>
+
+  <script src="manifest.js"></script>
+  <script src="nav.js"></script>
+</body>
+</html>

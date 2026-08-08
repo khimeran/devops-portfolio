@@ -118,6 +118,49 @@ const NOTES_MANIFEST = [
    {
     "id": "nginx-s10",
     "title": "Базовые команды управления"
+   },
+   {
+    "id": "nginx-s11",
+    "title": "🌍 Выложить приложение в интернет"
+   },
+   {
+    "id": "nginx-s12",
+    "title": "🧭 Куда меня перекидывает: DNS, 443, редиректы"
+   }
+  ]
+ },
+ {
+  "id": "api",
+  "title": "🔌 API — интерфейсы, HTTP и curl",
+  "short": "API и curl",
+  "subs": [
+   {
+    "id": "api-s0",
+    "title": "Что такое API и какие бывают"
+   },
+   {
+    "id": "api-s1",
+    "title": "Анатомия HTTP: методы, статусы, заголовки"
+   },
+   {
+    "id": "api-s2",
+    "title": "curl — флаги и отладка"
+   },
+   {
+    "id": "api-s3",
+    "title": "Аутентификация: ключи, Basic, Bearer, OAuth"
+   },
+   {
+    "id": "api-s4",
+    "title": "Как работать с незнакомым API"
+   },
+   {
+    "id": "api-s5",
+    "title": "API в работе DevOps"
+   },
+   {
+    "id": "api-s6",
+    "title": "Шпаргалка и итог"
    }
   ]
  },

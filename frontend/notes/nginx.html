@@ -20,7 +20,7 @@
 
     <section id="nginx">
       <h1>🟢 nginx — веб-сервер и reverse proxy</h1>
-      <p>nginx — программа, которая слушает TCP-порт и отвечает на HTTP-запросы. То же делают Python <code>http.server</code>, Apache, Node Express, Go <code>net/http</code> — но nginx сделан под высокую нагрузку и обычно стоит <strong>перед</strong> другими приложениями (reverse proxy). Этот блок: модель процессов, конфиги, server/location, proxy_pass, балансировка, SSL, SELinux-ловушка на Fedora.</p>
+      <p>nginx — программа, которая слушает TCP-порт и отвечает на HTTP-запросы. То же делают Python <code>http.server</code>, Apache, Node Express, Go <code>net/http</code> — но nginx сделан под высокую нагрузку и обычно стоит <strong>перед</strong> другими приложениями (reverse proxy). Этот блок: модель процессов, конфиги, server/location, proxy_pass, балансировка, SSL, SELinux-ловушка на Fedora, а в конце — два практических раздела: <strong>как выложить приложение в интернет</strong> (белый IP, проброс портов, туннели, VPN) и <strong>почему тебя перекидывает</strong> на другой адрес или порт.</p>
 
       <h2 id="nginx-s0">Модель процессов</h2>
 
@@ -381,8 +381,502 @@ sudo nginx -s stop                     # быстрый стоп
 sudo nginx -s quit                     # graceful — дать доработать запросам</pre>
       </div>
 
+      <h2 id="nginx-s11">🌍 Выложить приложение в интернет: от localhost до домена</h2>
+      <p>Приложение крутится на <code>localhost:8000</code> и надо, чтобы оно открывалось по адресу <code>myapp.ru</code> из любой точки мира. Задача выглядит как одна, а на самом деле это <strong>цепочка из шести звеньев</strong> — и «не работает» почти всегда означает, что порвано ровно одно из них.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ЦЕПОЧКА</span>
+          <span>Шесть звеньев — по ним и надо идти при отладке</span>
+        </div>
+        <pre>1. ПРОЦЕСС СЛУШАЕТ
+   Приложение реально принимает соединения — и на нужном адресе.
+   ss -tlnp | grep 8000
+   ⚠️ Слушает 127.0.0.1:8000 → доступно ТОЛЬКО с самой машины.
+      Чтобы пустить снаружи, нужен 0.0.0.0:8000 —
+      но правильнее оставить 127.0.0.1 и поставить впереди nginx.
+
+2. ЛОКАЛЬНЫЙ FIREWALL ПУСКАЕТ
+   firewall-cmd --list-all → порты 80/443 открыты?
+
+3. ТРАФИК ИЗ ИНТЕРНЕТА ДОХОДИТ ДО МАШИНЫ
+   ⭐ Самое сложное звено. Здесь решается: белый IP, проброс на роутере,
+      туннель или VPN. Про него — весь этот раздел ниже.
+
+4. ИМЯ ПРЕВРАЩАЕТСЯ В АДРЕС (DNS)
+   A-запись myapp.ru → твой публичный IP.
+   dig +short myapp.ru
+
+5. NGINX УЗНАЁТ СВОЙ САЙТ
+   Запрос приходит с заголовком Host: myapp.ru — должен быть
+   server { server_name myapp.ru; }, иначе попадёшь в default_server.
+
+6. HTTPS
+   Сертификат на это имя (certbot), и редирект 80 → 443.
+
+# Порвано звено 1 или 2 → «connection refused»
+# Порвано звено 3       → бесконечное ожидание, таймаут
+# Порвано звено 4       → «не удалось найти сервер» / NXDOMAIN
+# Порвано звено 5       → открылась «Welcome to nginx» или чужой сайт
+# Порвано звено 6       → «Ваше подключение не защищено»</pre>
+      </div>
+
+      <h3>Шаг нулевой: узнай, какой у тебя случай</h3>
+      <p>Всё дальнейшее зависит от одного вопроса: <strong>может ли интернет сам к тебе достучаться</strong>. Проверяется за минуту.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Есть ли у меня белый (публичный) IP</span>
+        </div>
+        <pre># 1. Какой IP видит интернет:
+curl -s ifconfig.me ; echo
+curl -s https://api.ipify.org ; echo
+
+# 2. Какой IP на самом деле у машины/роутера:
+ip -4 addr show | grep inet
+
+# ⭐ СРАВНИВАЕМ:
+#   Совпали → у тебя БЕЛЫЙ IP прямо на машине (типично для VPS).
+#   Не совпали, а локальный адрес из диапазонов
+#      10.x.x.x / 172.16–31.x.x / 192.168.x.x
+#   → ты за NAT (домашний роутер). Нужен проброс портов на роутере.
+#   Локальный адрес 100.64.x.x – 100.127.x.x
+#   → ⚠️ CGNAT: белого IP нет даже у роутера, провайдер раздаёт один
+#     адрес на сотни абонентов. Проброс портов НЕВОЗМОЖЕН —
+#     только туннель (варианты C и D ниже) или белый IP за доплату.
+
+# 3. Проверить снаружи, виден ли порт (с телефона по мобильному интернету
+#    или через онлайн-сервис проверки портов):
+curl -v --max-time 5 http://ТВОЙ_ПУБЛИЧНЫЙ_IP/
+#    «Connection refused» — дошли, но никто не слушает (звено 1–2)
+#    «Connection timed out» — не дошли вообще (звено 3: NAT/провайдер/фаервол)</pre>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-title">Пять рабочих схем публикации — выбери свою</div>
+        <table class="cmp">
+          <thead><tr><th>Схема</th><th>Когда подходит</th><th>Нужен белый IP</th><th>Кому будет видно</th><th>Сложность</th></tr></thead>
+          <tbody>
+            <tr><td><strong>A. VPS</strong> с nginx</td><td>Всегда, когда нужен публичный сайт. Эталонный путь</td><td class="yes">да, даёт хостер</td><td>всему интернету</td><td class="yes">низкая</td></tr>
+            <tr><td><strong>B. Свой сервер</strong> + проброс портов</td><td>Железо дома/в офисе, провайдер даёт белый IP</td><td class="yes">да, на роутере</td><td>всему интернету</td><td class="mid">средняя</td></tr>
+            <tr><td><strong>C. Туннель</strong> (Cloudflare Tunnel)</td><td>CGNAT, серый IP, «не хочу открывать порты»</td><td class="no">нет</td><td>всему интернету</td><td class="yes">низкая</td></tr>
+            <tr><td><strong>D. VPS + VPN/SSH-туннель</strong></td><td>Свой сервер дома, но точка входа — арендованный VPS</td><td class="mid">только у VPS</td><td>всему интернету</td><td class="no">высокая</td></tr>
+            <tr><td><strong>E. Tailscale / WireGuard</strong></td><td>Доступ только себе и коллегам, публиковать не нужно</td><td class="no">нет</td><td>только своим устройствам</td><td class="yes">очень низкая</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Схема A — VPS с белым IP (эталон, с него стоит начинать)</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Полный путь: пустая VPS → рабочий https://myapp.ru</span>
+        </div>
+        <pre># 1. Приложение слушает ТОЛЬКО локально — наружу его пустит nginx:
+#    uvicorn app.main:app --host 127.0.0.1 --port 8000
+ss -tlnp | grep 8000        # LISTEN 127.0.0.1:8000  ✅
+
+# 2. Открыть 80 и 443 (и НЕ открывать 8000!):
+sudo firewall-cmd --add-service=http --add-service=https --permanent
+sudo firewall-cmd --reload
+
+# 3. DNS: у регистратора домена создать A-запись
+#      myapp.ru      A    203.0.113.10     (IP твоей VPS)
+#      www.myapp.ru  A    203.0.113.10
+#    Проверить (⚠️ обновление занимает от минут до часов — это TTL):
+dig +short myapp.ru
+#    ⭐ Пока DNS не обновился, тестировать можно так:
+curl -I --resolve myapp.ru:80:203.0.113.10 http://myapp.ru
+
+# 4. nginx: положить конфиг сайта (файл ниже) и проверить:
+sudo nginx -t &amp;&amp; sudo systemctl reload nginx
+
+# 5. HTTPS — certbot всё сделает сам:
+sudo dnf install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d myapp.ru -d www.myapp.ru
+#    Он проверит владение доменом (ACME http-01: положит файл в /.well-known/),
+#    выпустит сертификат, ПЕРЕПИШЕТ конфиг под 443 и добавит редирект с 80.
+#    Автопродление уже настроено таймером:
+systemctl list-timers | grep certbot
+sudo certbot renew --dry-run       # репетиция продления
+
+# 6. Проверка снаружи:
+curl -I https://myapp.ru
+curl -sIL http://myapp.ru | grep -E 'HTTP/|location'   # цепочка редиректов</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">NGINX</span>
+          <span>/etc/nginx/conf.d/myapp.conf — базовый рабочий конфиг</span>
+        </div>
+        <pre>server {
+    listen 80;
+    server_name myapp.ru www.myapp.ru;
+
+    # ⭐ до выпуска сертификата certbot кладёт проверочный файл сюда —
+    #    поэтому редирект на https ставят ПОСЛЕ получения сертификата
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name myapp.ru www.myapp.ru;
+
+    ssl_certificate     /etc/letsencrypt/live/myapp.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/myapp.ru/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    access_log /var/log/nginx/myapp.access.log;
+    error_log  /var/log/nginx/myapp.error.log;
+
+    # Статика фронтенда — отдаёт сам nginx, это быстро
+    location / {
+        root /var/www/myapp;
+        try_files $uri $uri/ /index.html;   # SPA: неизвестные пути → index.html
+    }
+
+    # ⭐ API на ТОМ ЖЕ домене — и никакого CORS не возникнет
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;   # ⭐ иначе приложение
+                                                       # будет строить http-ссылки
+        proxy_read_timeout 60s;             # долгие запросы → иначе 504
+    }
+
+    # WebSocket (live-логи, чаты) — без этих двух строк соединение рвётся
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8000/ws/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}</pre>
+      </div>
+
+      <h3>Схема B — свой железный сервер дома или в офисе</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СХЕМА</span>
+          <span>Как трафик доходит до машины за роутером</span>
+        </div>
+        <pre>Интернет
+   │  запрос на 203.0.113.10:443   (белый IP роутера)
+   ▼
+РОУТЕР провайдера           ← ⭐ здесь настраивается ПРОБРОС ПОРТОВ
+   │  Port Forwarding / Virtual Server / NAT:
+   │     внешний 443  →  192.168.1.50:443
+   ▼
+192.168.1.50  (твой сервер)  ← ⭐ обязательно СТАТИЧЕСКИЙ локальный адрес
+   │                             (или DHCP-резервация по MAC на роутере)
+   ├─ firewalld: 80/443 открыты
+   ├─ nginx: server_name myapp.ru → proxy_pass 127.0.0.1:8000
+   └─ приложение на 127.0.0.1:8000
+
+ПОШАГОВО:
+ 1. Дать серверу постоянный локальный IP (резервация по MAC на роутере).
+ 2. На роутере: Port Forwarding 80→192.168.1.50:80 и 443→192.168.1.50:443.
+ 3. Убедиться, что провайдер не блокирует входящие 80/443
+    (у домашних тарифов иногда блокируют — тогда схема C или D).
+ 4. IP от провайдера обычно ДИНАМИЧЕСКИЙ — нужен DDNS,
+    иначе домен «отвалится» после переподключения:
+       ddclient / inadyn / скрипт от Cloudflare API по крону
+    Схема: домашний IP сменился → скрипт обновляет A-запись → домен снова живой.
+ 5. Дальше всё как в схеме A: DNS → nginx → certbot.
+
+⚠️ ЧТО ОБЯЗАТЕЛЬНО ПЕРЕД ПУБЛИКАЦИЕЙ ДОМАШНЕГО СЕРВЕРА:
+   - SSH только по ключам, PasswordAuthentication no, root-логин запрещён
+   - наружу торчат ТОЛЬКО 80/443. SSH — не на 22 наружу, а лучше вообще
+     через VPN (схема E)
+   - fail2ban на sshd и nginx
+   - автообновления безопасности (dnf-automatic)
+   - сервер в отдельной подсети/VLAN, если в той же сети домашние устройства
+   - бэкапы: публичный сервер = мишень</pre>
+      </div>
+
+      <h3>Схема C — туннель, когда белого IP нет (CGNAT)</h3>
+      <p>Идея: сервер сам устанавливает <strong>исходящее</strong> соединение к публичному сервису, и трафик идёт обратно по этому же каналу. Входящие порты не нужны вообще — а значит, работает даже за CGNAT и без прав на роутер.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Cloudflare Tunnel — «сервер сам звонит наружу»</span>
+        </div>
+        <pre>Как это выглядит:
+   Клиент → Cloudflare (у них белые IP и TLS) → ↓ туннель ↓ → твой cloudflared
+                                                              → localhost:8000
+   ⭐ Твой сервер НИЧЕГО не слушает из интернета. Он сам держит соединение.
+
+# Установка и подключение:
+cloudflared tunnel login                       # откроет браузер, выберешь домен
+cloudflared tunnel create myapp                # создаст туннель и креды
+cloudflared tunnel route dns myapp myapp.ru    # заведёт DNS-запись автоматически
+
+# ~/.cloudflared/config.yml
+tunnel: myapp
+credentials-file: /root/.cloudflared/&lt;ID&gt;.json
+ingress:
+  - hostname: myapp.ru
+    service: http://localhost:8000
+  - service: http_status:404          # обязательное правило-заглушка в конце
+
+cloudflared tunnel run myapp                   # проверить руками
+sudo cloudflared service install               # поставить как systemd-сервис
+
+ПЛЮСЫ: не нужен белый IP и проброс портов; TLS-сертификат делает Cloudflare;
+       твой реальный IP скрыт; защита от DDoS и ботов «в комплекте».
+МИНУСЫ: зависимость от стороннего сервиса; весь трафик идёт через него;
+       нужен домен, делегированный на Cloudflare.
+
+# ⚡ Быстрый временный вариант «показать коллеге на 10 минут»:
+cloudflared tunnel --url http://localhost:8000    # выдаст случайный *.trycloudflare.com
+ssh -R 80:localhost:8000 serveo.net               # без установки чего-либо
+#   ngrok http 8000 — то же самое, самый известный. ⚠️ Всё это — для демо,
+#   не для прода: адрес меняется, лимиты, чужой сервис в середине.</pre>
+      </div>
+
+      <h3>Схема D — свой VPS как точка входа (когда хочется всё своё)</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СХЕМА</span>
+          <span>Дешёвый VPS с белым IP + туннель до домашнего сервера</span>
+        </div>
+        <pre>Идея: арендуешь самую дешёвую VPS ради белого IP. Она принимает трафик
+и по защищённому каналу передаёт его домой. Свой «Cloudflare Tunnel»,
+только полностью под контролем.
+
+Интернет → VPS (белый IP, nginx + certbot)
+             │  внутренний адрес туннеля 10.8.0.2
+             ▼
+       WireGuard / обратный SSH
+             ▼
+     домашний сервер (за CGNAT) → приложение :8000
+
+── ВАРИАНТ 1: WireGuard (правильный, стабильный) ────────────────
+# На VPS и дома поднимается VPN, у каждого адрес в сети 10.8.0.0/24.
+# После этого на VPS в nginx просто:
+location / {
+    proxy_pass http://10.8.0.2:8000;      # ⭐ домашний сервер как соседняя машина
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+# Плюс: канал держится сам, переживает разрывы, низкие задержки (UDP).
+
+── ВАРИАНТ 2: обратный SSH-туннель (быстро, для начала) ─────────
+# ЗАПУСКАЕТСЯ НА ДОМАШНЕМ СЕРВЕРЕ:
+ssh -N -R 127.0.0.1:8080:127.0.0.1:8000 tunnel@vps.example.com
+#        │  └ на VPS появится порт 8080, ведущий к нам на 8000
+#        └ -N: только туннель, без шелла
+# На VPS: proxy_pass http://127.0.0.1:8080;
+# ⚠️ Чтобы не падало — autossh + systemd-юнит:
+#    autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 #            -R 127.0.0.1:8080:127.0.0.1:8000 tunnel@vps.example.com
+# ⚠️ GatewayPorts на VPS оставить выключенным: пусть порт слушается только
+#    на 127.0.0.1, наружу отдаёт nginx с TLS, а не голый туннель.
+
+Про -L и -R подробнее — в разделе <a href="network.html#network-s4" style="color:#58a6ff;">Сеть и SSH</a>.</pre>
+      </div>
+
+      <h3>Схема E — Tailscale/WireGuard: не публиковать вообще</h3>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Когда доступ нужен только тебе и коллегам</span>
+        </div>
+        <pre>⭐ Самый недооценённый вариант. Прежде чем выставлять сервис в интернет,
+   спроси: а он вообще должен быть публичным? Панель мониторинга,
+   Grafana, тестовый стенд, домашний NAS — почти никогда.
+
+TAILSCALE (WireGuard с автоматикой, ставится за 2 минуты):
+   curl -fsSL https://tailscale.com/install.sh | sh
+   sudo tailscale up
+   # То же на ноутбуке и телефоне. Готово: устройства видят друг друга
+   # по адресам 100.x.x.x, где бы физически ни находились.
+   # NAT, CGNAT, разные страны — Tailscale пробивает соединение сам.
+
+   tailscale status                       # кто в сети
+   tailscale ip -4                        # мой адрес в сети
+   # Приложение доступно как http://100.101.102.103:8000 — только своим.
+
+   ⭐ MagicDNS: обращаться по имени машины — http://homeserver:8000
+   ⭐ tailscale serve / funnel — отдать сервис по HTTPS внутри сети,
+      а при желании и наружу, без своего домена и сертификатов.
+
+ЧИСТЫЙ WIREGUARD (без сторонних сервисов, но настраивать руками):
+   wg genkey | tee privatekey | wg pubkey > publickey
+   # /etc/wireguard/wg0.conf на обеих сторонах, ключи, AllowedIPs
+   systemctl enable --now wg-quick@wg0
+   # Нужен хотя бы один узел с белым IP (обычно VPS) как точка встречи.
+
+СРАВНЕНИЕ:
+   Tailscale  — быстро, работает везде, зависит от их координационного сервера
+   WireGuard  — полностью своё, нужен белый IP у одного узла и ручная настройка
+   VPN ≠ публикация: сервис остаётся невидимым для интернета. Это самая
+   безопасная схема — публиковать имеет смысл только то, что ДОЛЖНО быть публичным.</pre>
+      </div>
+
       <div class="note">
-        <strong>Итог темы:</strong> nginx — мастер + воркеры, по одному на ядро. Конфиг в <code>/etc/nginx/nginx.conf</code>, свои файлы — в <code>conf.d/</code>. Структура: <code>http → server → location</code>. <strong>«Welcome to nginx»</strong> — это <code>/usr/share/nginx/html/index.html</code>. server выбирается по <code>Host:</code>, location — по правилам приоритета (точное → префикс с ^~ → регулярки → обычный префикс). <code>proxy_pass</code> со слэшем подменяет префикс, без слэша — оставляет путь как есть. Бэкенду нужны заголовки <code>X-Real-IP</code>, <code>X-Forwarded-Proto</code>, <code>Host</code>. <strong>На Fedora — обязательно <code>setsebool -P httpd_can_network_connect on</code></strong>, иначе 502 при правильном конфиге. Балансировка через <code>upstream</code> с алгоритмами round-robin/ip_hash/least_conn. HTTPS — <code>certbot --nginx</code> делает всё сам. Перед <code>reload</code> — всегда <code>nginx -t</code>.
+        <strong>Как выбрать за 10 секунд:</strong> нужен публичный сайт и есть немного денег → <strong>VPS (A)</strong>. Есть железо и белый IP → <strong>проброс портов (B)</strong>. Провайдер за CGNAT или порты закрыты → <strong>Cloudflare Tunnel (C)</strong>. Хочется всё своё и железо дома → <strong>дешёвая VPS + WireGuard (D)</strong>. Нужно только себе → <strong>Tailscale (E)</strong>, и не выставляй наружу вообще ничего.
+      </div>
+
+      <h2 id="nginx-s12">🧭 Куда меня перекидывает: DNS → 443 → Host → редиректы</h2>
+      <p>«Захожу по адресу, а меня куда-то пробрасывает и открывается не то» — самый частый вопрос новичка. Разберём весь путь запроса по шагам: где именно принимается решение, куда тебя отправить.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ПУТЬ ЗАПРОСА</span>
+          <span>Что происходит между «ввёл адрес» и «увидел страницу»</span>
+        </div>
+        <pre>Ты вводишь:  myapp.ru
+
+1. БРАУЗЕР ДОСТРАИВАЕТ СХЕМУ
+   Современные браузеры сразу пробуют https://myapp.ru
+   (а если в списке HSTS-preload — то только https, без вариантов).
+   ⭐ Отсюда ощущение «меня пробрасывают на 443» — это ещё до сети.
+
+2. DNS: ИМЯ → IP
+   myapp.ru → A-запись → 203.0.113.10
+   (CNAME может увести на другое имя, а оно — уже на IP)
+   dig +short myapp.ru
+
+3. TCP-СОЕДИНЕНИЕ на порт 443
+   Порт берётся из схемы: https → 443, http → 80.
+   Если в адресе явно указан порт (myapp.ru:8443) — берётся он.
+
+4. TLS-HANDSHAKE + SNI                    ⭐ ключевой момент
+   Сертификатов на одном IP может быть много, поэтому клиент
+   в открытом виде сообщает, к КАКОМУ имени идёт — это SNI.
+   По нему nginx выбирает, каким сертификатом отвечать.
+
+5. HTTP-ЗАПРОС с заголовком Host
+   GET / HTTP/1.1
+   Host: myapp.ru                          ⭐ по нему nginx выбирает server{}
+
+6. NGINX ВЫБИРАЕТ server { }
+   server_name совпал → этот сайт.
+   Не совпал ни один → default_server (или первый в конфиге)
+   ⭐ Вот почему иногда открывается «Welcome to nginx» или ЧУЖОЙ сайт.
+
+7. NGINX ВЫБИРАЕТ location { }
+   → отдать файл (root/try_files) или передать бэкенду (proxy_pass)
+
+8. ОТВЕТ
+   200 — страница; 301/302 — «иди по другому адресу» (и браузер идёт);
+   502/504 — бэкенд недоступен или не успел.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РЕДИРЕКТЫ</span>
+          <span>Кто и зачем тебя перенаправляет</span>
+        </div>
+        <pre>ИСТОЧНИК 1 — nginx, редирект 80 → 443 (самый частый)
+   server { listen 80; return 301 https://$host$request_uri; }
+   Именно эту строку добавляет certbot. Ты стучишься на 80 —
+   тебя вежливо отправляют на 443. Это норма.
+
+ИСТОЧНИК 2 — nginx, нормализация имени
+   return 301 https://myapp.ru$request_uri;    # www → без www (или наоборот)
+   ⭐ Делают, чтобы у сайта был ОДИН канонический адрес.
+
+ИСТОЧНИК 3 — HSTS (сервер сказал «сюда только по https»)
+   add_header Strict-Transport-Security "max-age=31536000" always;
+   Браузер ЗАПОМИНАЕТ это на год и больше даже не пробует http.
+   ⚠️ Отсюда «редиректит на https, хотя я убрал редирект из конфига» —
+      это кэш браузера, а не сервер. Чистится в chrome://net-internals/#hsts
+
+ИСТОЧНИК 4 — САМО ПРИЛОЖЕНИЕ
+   Не авторизован → 302 на /login. Старый путь → 301 на новый.
+   ⭐ Если приложение редиректит на http:// вместо https:// —
+      значит, ему не передали X-Forwarded-Proto (см. блок про заголовки).
+
+ИСТОЧНИК 5 — nginx добавляет слэш к каталогу
+   Запрос /admin → 301 на /admin/ . Это штатное поведение.
+
+ИСТОЧНИК 6 — CDN / Cloudflare
+   Может добавить свои редиректы и правила ещё до твоего сервера.
+
+⚠️ ERR_TOO_MANY_REDIRECTS (петля) — классика:
+   nginx редиректит 80 → 443, а перед ним стоит Cloudflare в режиме
+   «Flexible», который ходит к тебе по http. Получается кольцо.
+   Лечение: режим Full (strict) на стороне CDN.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>⭐ Диагностика: где именно меня разворачивает</span>
+        </div>
+        <pre># 1. Куда указывает имя (и указывает ли вообще):
+dig +short myapp.ru
+dig myapp.ru A +noall +answer
+#    пусто → проблема в DNS, дальше идти бессмысленно
+
+# 2. ⭐ ВСЯ ЦЕПОЧКА РЕДИРЕКТОВ ОДНОЙ КОМАНДОЙ:
+curl -sIL http://myapp.ru | grep -E '^HTTP/|^[Ll]ocation:'
+#    HTTP/1.1 301 Moved Permanently
+#    Location: https://myapp.ru/          ← первый прыжок
+#    HTTP/2 200                           ← финиш
+#    ⭐ Видно каждый шаг и кто его сделал
+
+# 3. Полный диалог, включая TLS и SNI:
+curl -v https://myapp.ru 2>&amp;1 | head -30
+
+# 4. Проверить КОНКРЕТНЫЙ сервер, минуя DNS
+#    (переезд, тест нового сервера, подозрение на кэш):
+curl -I --resolve myapp.ru:443:203.0.113.10 https://myapp.ru
+
+# 5. Какой сертификат и на какие имена он выдан:
+echo | openssl s_client -connect myapp.ru:443 -servername myapp.ru 2>/dev/null   | openssl x509 -noout -subject -dates -ext subjectAltName
+#    ⭐ -servername = тот самый SNI. Без него можно получить ЧУЖОЙ
+#       сертификат — сервер отдаст дефолтный.
+
+# 6. Какой server{} на самом деле отвечает — подсунуть Host руками:
+curl -I -H 'Host: myapp.ru' http://127.0.0.1/
+#    ⭐ Так проверяют server_name прямо на машине, без DNS и интернета
+
+# 7. Что реально в конфиге (со всеми include):
+sudo nginx -T | grep -n -E 'server_name|listen|return 30|proxy_pass'
+
+# 8. Долетел ли запрос до сервера вообще:
+sudo tail -f /var/log/nginx/access.log
+#    записи нет → тебя развернуло РАНЬШЕ: браузер, DNS, CDN, HSTS</pre>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-title">Симптом → причина → чем проверить</div>
+        <table class="cmp">
+          <thead><tr><th>Что видишь</th><th>Скорее всего</th><th>Проверить</th></tr></thead>
+          <tbody>
+            <tr><td>Открывается «Welcome to nginx» или чужой сайт</td><td>Не совпал <code>server_name</code>, запрос попал в <code>default_server</code></td><td><code>curl -I -H 'Host: myapp.ru' http://IP/</code>, <code>nginx -T | grep server_name</code></td></tr>
+            <tr><td>Постоянно уводит на https, хотя редирект убрал</td><td>HSTS закэширован браузером</td><td>Проверить <code>curl -I</code> в терминале; чистить <code>chrome://net-internals/#hsts</code></td></tr>
+            <tr><td>ERR_TOO_MANY_REDIRECTS</td><td>Кольцо: CDN ходит по http, nginx гонит на https</td><td><code>curl -sIL</code> — увидишь повторяющийся <code>Location</code></td></tr>
+            <tr><td>Приложение шлёт ссылки на <code>http://127.0.0.1:8000</code></td><td>Не переданы <code>Host</code> и <code>X-Forwarded-Proto</code></td><td>Блок <code>proxy_set_header</code> в конфиге</td></tr>
+            <tr><td>«Ваше подключение не защищено»</td><td>Сертификат не на это имя / истёк / отдан не тот из-за SNI</td><td><code>openssl s_client -servername …</code></td></tr>
+            <tr><td>Таймаут при подключении</td><td>Не доходит до машины: NAT, фаервол, провайдер</td><td><code>curl -v --max-time 5</code>, проверка порта снаружи</td></tr>
+            <tr><td>Connection refused</td><td>Дошло, но никто не слушает порт</td><td><code>ss -tlnp | grep :443</code></td></tr>
+            <tr><td>502 Bad Gateway</td><td>nginx не достучался до бэкенда (лежит / не тот порт / SELinux)</td><td><code>error.log</code>, <code>curl 127.0.0.1:8000</code>, <code>getsebool httpd_can_network_connect</code></td></tr>
+            <tr><td>504 Gateway Timeout</td><td>Бэкенд жив, но не успел ответить</td><td><code>proxy_read_timeout</code>, логи приложения</td></tr>
+            <tr><td>Домен ведёт на старый сервер</td><td>DNS ещё не обновился (TTL) или кэш резолвера</td><td><code>dig +short</code>, <code>resolvectl flush-caches</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <strong>Правило отладки:</strong> идти <em>снаружи внутрь</em> и на каждом шаге спрашивать «долетело сюда или нет». DNS → TCP → TLS → Host → server_name → location → бэкенд. Как только нашёл шаг, где запрос пропадает, — там и проблема; всё, что дальше, чинить бессмысленно. Про то, как читать коды ответов и <code>curl -v</code>, — в разделе <a href="api.html" style="color:#58a6ff;">API</a>.
+      </div>
+
+      <div class="note">
+        <strong>Итог темы:</strong> nginx — мастер + воркеры, по одному на ядро. Конфиг в <code>/etc/nginx/nginx.conf</code>, свои файлы — в <code>conf.d/</code>. Структура: <code>http → server → location</code>. <strong>«Welcome to nginx»</strong> — это <code>/usr/share/nginx/html/index.html</code>. server выбирается по <code>Host:</code>, location — по правилам приоритета (точное → префикс с ^~ → регулярки → обычный префикс). <code>proxy_pass</code> со слэшем подменяет префикс, без слэша — оставляет путь как есть. Бэкенду нужны заголовки <code>X-Real-IP</code>, <code>X-Forwarded-Proto</code>, <code>Host</code>. <strong>На Fedora — обязательно <code>setsebool -P httpd_can_network_connect on</code></strong>, иначе 502 при правильном конфиге. Балансировка через <code>upstream</code> с алгоритмами round-robin/ip_hash/least_conn. HTTPS — <code>certbot --nginx</code> делает всё сам. Перед <code>reload</code> — всегда <code>nginx -t</code>. Публикация наружу — это цепочка из шести звеньев (процесс → firewall → маршрут снаружи → DNS → server_name → TLS), и способ прокинуть трафик выбирается по одному вопросу: есть ли белый IP. «Меня перекидывает» — это почти всегда 301 с 80 на 443, HSTS в кэше браузера или несовпавший <code>server_name</code>; разбирается связкой <code>dig</code> + <code>curl -sIL</code> + <code>nginx -T</code>.
       </div>
     </section>
 

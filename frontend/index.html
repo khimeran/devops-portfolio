@@ -145,7 +145,7 @@
   <h1>DevOps Portfolio</h1>
   <a class="nav-btn" href="notes.html" style="background:#1c2a3a; color:#58a6ff;">📓 Конспекты по темам</a>
   <a class="nav-btn" href="learning_plan.html" style="background:#2d1f0a; color:#ffa657;">🗺 План обучения</a>
-  <p class="muted">Обновлено: 17 июня 2026 &nbsp;|&nbsp; Цель: Junior DevOps</p>
+  <p class="muted">Обновлено: 8 августа 2026 &nbsp;|&nbsp; Цель: Junior DevOps</p>
 
   <!-- ===== ЛЕГЕНДА ===== -->
   <div class="card legend">
@@ -219,13 +219,15 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
   <div class="card">
     <div class="focus-row"><b>Разбираю:</b> <span><b>IaC целиком</b> — Terraform (создать), Ansible (настроить push), Puppet (держать pull). Параллельно добиваю Python: модель языка + монитор сервисов на <code>requests</code>.</span></div>
     <div class="focus-row"><b>Стадия:</b> <span><span class="tag">🟡 теория трёх инструментов разобрана вглубь, впереди — руками</span></span></div>
-    <div class="focus-row"><b>План недели:</b> <span>поднять на виртуалках связку «Terraform → cloud-init → агент», собрать свою роль Ansible для node_exporter и прогнать тест идемпотентности (второй прогон = <code>changed=0</code>).</span></div>
+    <div class="focus-row"><b>План недели:</b> <span>поднять на виртуалках связку «Terraform → cloud-init → агент», собрать свою роль Ansible для node_exporter и прогнать тест идемпотентности (второй прогон = <code>changed=0</code>). Плюс выложить этот проект наружу по домену и проверить всю цепочку через <code>curl -sIL</code>.</span></div>
     <div class="focus-row" style="margin-top:0.9rem"><b>Недавно узнал (IaC):</b></div>
     <ul style="margin-top:0.2rem">
       <li>🧱 <b>Три инструмента — не конкуренты, а слои:</b> Terraform создаёт то, чего нет; Ansible и Puppet приводят существующее к описанию. Разница между ними только в модели доставки — push по SSH против pull агентом.</li>
       <li>🎩 <b>Puppet = иммунная система парка:</b> агент каждые 30 минут сам сверяет машину с git. Правку руками откатит следующий прогон — дрейф конфигурации невозможен в принципе.</li>
       <li>🗂️ <b>Код отдельно, данные отдельно:</b> в Puppet различие «на все машины» и «только на web07» — это не два механизма, а два уровня иерархии Hiera (<code>data/common.yaml</code> против <code>data/nodes/web07.yaml</code>).</li>
       <li>🛡️ <b>Установка агента — не «скачал и запустил»:</b> версия зафиксирована, бинарь с checksum, systemd-юнит из шаблона, порт только для мониторинга, и обязательная приёмка в конце.</li>
+      <li>🌍 <b>«Выложить в интернет» — это шесть звеньев,</b> а не одна настройка: процесс слушает → firewall → трафик доходит до машины → DNS → <code>server_name</code> → TLS. Способ прокинуть трафик выбирается одним вопросом: есть ли белый IP (за CGNAT — только туннель).</li>
+      <li>🔌 <b>Всё вокруг — API:</b> <code>kubectl get pods -v=8</code> покажет обычный HTTP-запрос, а <code>docker</code> ходит в сокет. Значит, автоматизировать можно что угодно связкой <code>curl</code> + <code>jq</code>, не дожидаясь готовой команды.</li>
     </ul>
   </div>
 
@@ -236,7 +238,13 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
    └─ фундамент под всё остальное: контейнер, агент и сервис — это процессы
 
 <span style="color:#3fb950">Сеть + SSH</span> → <span style="color:#3fb950">nginx</span> (reverse proxy, TLS)
-   └─ как трафик доходит до приложения и где он ломается (502 vs 504)
+   └─ путь запроса целиком: DNS → TCP:443 → TLS(SNI) → Host → server_name
+      → location → proxy_pass → бэкенд. Порвалось звено — там и чинить
+   └─ выложить наружу: белый IP / проброс портов / туннель / VPN
+
+<span style="color:#58a6ff">HTTP + API</span> — общий язык всего стека
+   └─ curl -v показывает ровно ту же цепочку, что выше, только из терминала
+   └─ kubectl, docker, terraform, Prometheus внутри делают эти же запросы
 
 <span style="color:#58a6ff">Docker</span> → <span style="color:#58a6ff">Compose</span> → <span style="color:#d29922">Kubernetes</span>
    └─ упаковали приложение → собрали стек → отдали оркестратору
@@ -258,6 +266,7 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
   <h3 style="color:#79c0ff; margin-top:1.5rem">🕰 Летопись</h3>
   <div class="card">
     <ul class="timeline">
+      <li><span class="date">8 августа 2026 · вечер</span><span class="what">Добил веб-слой. В nginx — два практических блока: <strong>как выложить приложение в интернет</strong> (цепочка из шести звеньев, как понять есть ли белый IP и что такое CGNAT, пять схем публикации — VPS, проброс портов на роутере с DDNS, Cloudflare Tunnel, свой VPS + WireGuard/<code>ssh -R</code>, Tailscale «только для своих», чек-лист безопасности домашнего сервера) и <strong>«куда меня перекидывает»</strong> — полный путь запроса от ввода адреса до бэкенда, откуда берётся 443 и редирект 80→443, что такое SNI и HSTS, таблица «симптом → причина → чем проверить». Новый раздел <strong>API</strong>: виды API, методы и идемпотентность, коды ответа (401 vs 403, 502 vs 504), боевые флаги curl и чтение <code>curl -v</code>, разбор ответов через jq, авторизация Bearer/Basic/mTLS, CORS и «почему из curl работает, а из браузера нет», пагинация и rate limit, и API инструментов — docker.sock, kube-apiserver, Prometheus, GitHub.</span></li>
       <li><span class="date">8 августа 2026</span><span class="what">Капремонт раздела IaC: собран в один раздел с тремя подразделами — <strong>Terraform</strong> (модули, remote backend с блокировкой, окружения, count/for_each/lifecycle, передача эстафеты через cloud-init), <strong>Ansible</strong> (структура прод-репозитория, group_vars/host_vars, роли и Jinja2, отдельный разбор «как правильно ставить агента»: checksum, systemd-юнит, handlers, приёмка и тест идемпотентности) и большой новый блок <strong>Puppet</strong> — архитектура pull-модели и цикл агента, карта путей на боевом сервере, control-repo и r10k, классы/модули/автозагрузка, шаблоны <code>.epp</code>, Roles &amp; Profiles, Hiera и правила «одной ноде против всем», секреты в eyaml, четыре боевых примера (пользователи с sudo и ключами, приветственная страница после авторизации, мониторинг с алертингом через exported resources, деплой приложения) и процедура разведки на чужом проде.</span></li>
       <li><span class="date">18 июля 2026</span><span class="what">Старт подготовки к защите главы 1 стажировки. Блиц-повторение без промахов: процессы/сигналы, git (ветки-указатели, fast-forward), nginx (reload, 502 vs 504, три причины 403). Новая тема — диски: конвейер разметки, RAID 1 на <code>mdadm</code>, fstab с <code>nofail</code> и репетиция ребута через <code>mount -a</code> — всё руками на loop-полигоне. Бонус: боевой дебаг DNS-фильтрации провайдера (DoT, policy routing). Капремонт конспектов: распил на отдельные страницы с общим сайдбаром и кнопками навигации, дисковый раздел переписан в формат пошаговых инструкций, добавлена теория по Airflow, Puppet, Vault и почасовой ротации логов.</span></li>
       <li><span class="date">17 июня 2026</span><span class="what">Python — фундамент языка: 5 законов (всё — объект, переменная-ярлык, динамическая типизация), <code>venv</code>/<code>pip</code>, фонарики <code>type/dir/help</code>, цепочки методов, <code>try/except</code> и чтение traceback. Начал монитор сервисов на <code>requests</code>.</span></li>
@@ -299,7 +308,8 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
           <li>Kubernetes — пока тяжело (много абстракций разом)</li>
           <li>PromQL и Grafana — теория есть, практики мало</li>
           <li>EXPLAIN ANALYZE и индексы — нужно потрогать руками</li>
-          <li>SSL/TLS на nginx — поверхностно</li>
+          <li>SSL/TLS и публикация наружу — теория есть, вживую домен ещё не выкладывал</li>
+          <li>API: авторизация (OAuth/JWT), CORS и rate limit — нужно потрогать на реальном сервисе</li>
           <li>IaC — теория трёх инструментов разобрана вглубь (Terraform, Ansible, Puppet), но вживую не собрано: нет своего puppetserver и парка машин</li>
           <li>Jenkins — прочитано, но не собрано вживую</li>
           <li>HA-кластеры (кворум, split-brain) — пока теория</li>
@@ -340,7 +350,20 @@ grafana    → localhost:3030   # Дашборды (3000 занят VS Code)</co
       ['🟢 nginx', [
         ['Reverse proxy + конфиг (server / location)', 'green'],
         ['upstream, балансировка, логи', 'yellow'],
-        ['SSL/TLS (HTTPS)', 'red'],
+        ['SSL/TLS (HTTPS), certbot', 'yellow'],
+        ['Путь запроса: DNS → 443 → SNI → Host → server_name', 'yellow'],
+        ['Редиректы: 80→443, HSTS, петли, диагностика', 'yellow'],
+        ['Публикация наружу: белый IP, проброс, туннели, VPN', 'yellow'],
+        ['Выложить свой проект по домену вживую', 'empty'],
+      ]],
+      ['🔌 API и HTTP', [
+        ['Методы, идемпотентность, коды ответа', 'yellow'],
+        ['401 vs 403, 502 vs 504, 4xx vs 5xx', 'yellow'],
+        ['curl: -f -i -v -L --resolve -w --json', 'yellow'],
+        ['jq: разбор ответа, поля, фильтры', 'yellow'],
+        ['Авторизация: API-key, Basic, Bearer/JWT, mTLS', 'red'],
+        ['CORS, пагинация, rate limit, версии', 'red'],
+        ['API инструментов: docker.sock, k8s, Prometheus, GitHub', 'red'],
       ]],
       ['🔀 Git', [
         ['Основы: команды, merge, конфликты', 'green'],

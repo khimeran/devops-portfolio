@@ -296,7 +296,7 @@
     <a href="#phase1" data-section="phase1">1 · Linux + Bash</a>
     <a href="#phase2" data-section="phase2">2 · Сети</a>
     <a href="#phase3" data-section="phase3">3 · Docker</a>
-    <a href="#phase4" data-section="phase4">4 · Nginx</a>
+    <a href="#phase4" data-section="phase4">4 · Nginx + публикация и API</a>
     <a href="#phase5" data-section="phase5">5 · CI/CD</a>
     <a href="#phase6" data-section="phase6">6 · СУБД</a>
     <a href="#phase7" data-section="phase7">7 · Мониторинг</a>
@@ -576,9 +576,9 @@
     <!-- ================ PHASE 4 ================ -->
     <h2 id="phase4">🌍 ФАЗА 4 · Nginx</h2>
     <div class="card">
-      <span class="badge orange">4 дня</span>
-      <span class="badge blue">5 модулей</span>
-      <p>Reverse proxy, балансировка, HTTPS, кэш, лимиты. После фазы — настройка любого типового сценария.</p>
+      <span class="badge orange">6 дней</span>
+      <span class="badge blue">6 модулей</span>
+      <p>Reverse proxy, балансировка, HTTPS, кэш, лимиты, публикация приложения в интернет и работа с API через curl. После фазы — умеешь провести запрос от домена до бэкенда и починить любое звено этой цепочки.</p>
 
       <div class="module">
         <div class="module-head">📦 4.1 · Структура конфигов + <code>location</code></div>
@@ -601,11 +601,24 @@
         <div class="module-desc"><code>listen 443 ssl</code>, certbot + автообновление. Редирект HTTP→HTTPS. <code>limit_req</code>, заголовки безопасности.</div>
       </div>
 
+      <div class="module">
+        <div class="module-head">📦 4.5 · Публикация наружу: белый IP, проброс портов, туннели <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Цепочка «процесс → firewall → маршрут снаружи → DNS → server_name → TLS». Как понять, есть ли белый IP (CGNAT в <code>100.64/10</code>). Пять схем: VPS, проброс портов на роутере + DDNS, Cloudflare Tunnel, свой VPS + WireGuard/<code>ssh -R</code>, Tailscale «только для своих». Разбор редиректов: 80→443, HSTS, SNI (теория — в конспектах, nginx).</div>
+      </div>
+      <div class="module">
+        <div class="module-head">📦 4.6 · API и curl — как разговаривать с чем угодно <span class="badge red">🔥</span></div>
+        <div class="module-meta">1 день</div>
+        <div class="module-desc">Методы и идемпотентность, коды ответа (401 vs 403, 502 vs 504), заголовки, авторизация Bearer/Basic/mTLS. Боевые флаги <code>curl</code> (<code>-f -i -v -L --resolve -w --json</code>), разбор ответов через <code>jq</code>, CORS и почему «из curl работает, а из браузера нет». Docker/k8s/Prometheus/GitHub API руками (теория — в конспектах, раздел API).</div>
+      </div>
+
       <div class="phase-project">
         <div class="title">🎯 Phase Project</div>
         <ul>
           <li>Nginx — фронт перед всеми твоими сервисами: <code>/api</code> → FastAPI, <code>/grafana</code>, <code>/prometheus</code></li>
           <li>HTTPS, rate-limit на API, gzip, кэш статики</li>
+          <li>Выложить проект наружу по домену: DNS → nginx → certbot, проверить цепочку <code>curl -sIL</code></li>
+          <li>Написать healthcheck-скрипт на <code>curl</code> + <code>jq</code>, который валится с ненулевым кодом при 5xx</li>
         </ul>
       </div>
     </div>

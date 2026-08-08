@@ -276,6 +276,10 @@ sudo resolvectl flush-caches        # сбросить кэш</pre>
         <br>4. <code>resolvectl status</code> — что systemd-resolved знает про апстримы.
       </div>
 
+      <div class="note">
+        🔗 <strong>Что происходит после того, как имя превратилось в IP:</strong> TCP на 443 → TLS с SNI → HTTP с заголовком <code>Host</code> → выбор <code>server{}</code> в nginx. Полный путь запроса и разбор «почему меня перекидывает на другой адрес» — в разделе <a href="nginx.html#nginx-s12" style="color:#58a6ff;">nginx → Куда меня перекидывает</a>.
+      </div>
+
       <!-- ============ ТЕМА 5: SSH ============ -->
       <h2 id="network-s4">SSH — удалённое управление</h2>
 
@@ -430,6 +434,10 @@ ssh -R 8080:localhost:80 user@public-server
 # === SOCKS-ПРОКСИ ===
 ssh -D 1080 user@server          # запустить SOCKS5 на localhost:1080
                                   # дальше браузер настраивается на SOCKS — весь трафик через сервер</pre>
+      </div>
+
+      <div class="note">
+        🔗 <strong>Туннель как способ выложить приложение наружу:</strong> <code>ssh -R</code> с домашнего сервера на арендованный VPS — рабочая схема, когда белого IP нет (CGNAT). Вместе с WireGuard, Tailscale и Cloudflare Tunnel она разобрана в <a href="nginx.html#nginx-s11" style="color:#58a6ff;">nginx → Выложить приложение в интернет</a>: там же — как понять, есть ли у тебя белый IP, и что настраивать на роутере.
       </div>
 
       <div class="note">

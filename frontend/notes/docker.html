@@ -26,6 +26,10 @@
         <strong>Аналогия:</strong> Контейнер — как коробка с пиццей. Внутри всё что нужно: тесто, начинка, соус. Открыл коробку в любом месте — пицца одинаковая.
       </div>
 
+      <div class="note">
+        🔗 <strong>Команда <code>docker</code> — тоже клиент API:</strong> она ходит в демон через unix-сокет <code>/var/run/docker.sock</code>. Проверить руками: <code>curl -s --unix-socket /var/run/docker.sock http://localhost/containers/json | jq -r '.[].Names[0]'</code>. Отсюда важное правило безопасности: <strong>дать контейнеру доступ к <code>docker.sock</code> — это фактически выдать ему root на хосте</strong>. Подробнее — в разделе <a href="api.html#api-s5" style="color:#58a6ff;">API</a>.
+      </div>
+
       <h2 id="docker-s0">Dockerfile — инструкция сборки</h2>
 
       <div class="code-block">
