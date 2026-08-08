@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DevOps — 🏗 IaC — Infrastructure as Code</title>
+  <title>DevOps — 🏗 IaC — Terraform / Ansible / Puppet</title>
   <link rel="stylesheet" href="notes.css">
 </head>
 <body>
@@ -20,16 +20,60 @@
 
     <section id="iac">
       <h1>🏗 IaC — Infrastructure as Code</h1>
-      <p>«Инфраструктура как код» — описание серверов, сетей, балансировщиков и баз в виде <strong>текстовых файлов в git</strong>, вместо кликов в админке. Любое изменение прода — это PR с ревью. Главная цель — <strong>повторяемость</strong>: один набор файлов разворачивается одинаково в dev, staging, prod. Этот блок — про <code>Terraform</code> (создание ресурсов) и <code>Ansible</code> (настройка серверов).</p>
+      <p>«Инфраструктура как код» — описание серверов, сетей, балансировщиков и баз в виде <strong>текстовых файлов в git</strong>, вместо кликов в админке. Любое изменение прода — это PR с ревью. Главная цель — <strong>повторяемость</strong>: один набор файлов разворачивается одинаково в dev, staging, prod.</p>
+      <p>Раздел состоит из трёх подразделов: <strong>Terraform</strong> (создать инфраструктуру), <strong>Ansible</strong> (настроить её push-моделью) и <strong>Puppet</strong> (держать её в заданном состоянии pull-моделью, с агентами).</p>
 
-      <div class="note">
-        <strong>Terraform vs Ansible:</strong> часто путают. <strong>Terraform создаёт ресурсы</strong> (виртуалки, сети, БД в облаке) — занимается тем, чего ещё нет. <strong>Ansible настраивает то, что уже есть</strong> (поставить пакеты, поправить конфиги, перезапустить сервисы). На проде их часто комбинируют: terraform поднимает 5 серверов → ansible их настраивает.
+      <h2 id="iac-s0">Три инструмента: кто за что отвечает</h2>
+      <p>Их постоянно путают и пытаются сравнивать «кто лучше». На проде они живут <strong>слоями</strong> и делают разную работу.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СЛОИ</span>
+          <span>Кто на каком этапе жизни сервера</span>
+        </div>
+        <pre>СЛОЙ 1 — PROVISIONING (чего ещё нет)          → Terraform
+   создать VM, диск, сеть, security group, DNS-запись, managed-БД,
+   S3-бакет, балансировщик. Работает через API облака.
+
+СЛОЙ 2 — BOOTSTRAP (первое касание живой машины) → cloud-init / Ansible
+   поставить агента, положить ключи, зарегистрировать ноду,
+   подписать сертификат. Один раз в жизни сервера.
+
+СЛОЙ 3 — CONFIGURATION (то, что уже есть)     → Ansible ИЛИ Puppet
+   пакеты, пользователи, конфиги, сервисы, приложения.
+   Ansible — push: пришёл по SSH, сделал, ушёл.
+   Puppet  — pull: агент сам каждые 30 мин приводит машину к манифесту.
+
+СЛОЙ 4 — ДЕПЛОЙ ПРИЛОЖЕНИЯ                     → CI/CD (Actions/Jenkins)
+   выкатка новой версии кода поверх настроенной машины.</pre>
       </div>
 
-      <h2 id="iac-s0">Terraform</h2>
-      <p>HashiCorp, написан на Go в 2014-м. Multi-cloud — один синтаксис работает в AWS, GCP, Azure, Yandex Cloud, локальном Docker'е. С 2023-го у HashiCorp поменялась лицензия (BSL), сообщество форкнуло в <strong>OpenTofu</strong> — полностью совместимый, более «свободный». Синтаксис идентичный.</p>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СРАВНЕНИЕ</span>
+          <span>Terraform vs Ansible vs Puppet — одной таблицей</span>
+        </div>
+        <pre>                    Terraform        Ansible            Puppet
+Что делает         создаёт ресурсы  настраивает ОС     настраивает ОС
+Модель             API облака       PUSH по SSH        PULL агентом
+Агент на сервере   не нужен         не нужен           нужен (демон)
+Центральный сервер не нужен*        не нужен           нужен (puppetserver)
+Язык               HCL (.tf)        YAML (.yml)        Puppet DSL (.pp)
+Помнит состояние   да, tfstate      нет                да, каталог + PuppetDB
+Когда применяется  когда запустил   когда запустил     каждые 30 мин сам
+Дрейф конфигурации не лечит         лечит при запуске  лечит сам, всегда
+Порог входа        средний          низкий             высокий
+Где чаще встретишь облака, k8s      всё подряд         банки, телеком, 1000+ VM
 
-      <h3>Боль, которую решает</h3>
+* state всё равно хранят централизованно (S3 + lock).</pre>
+      </div>
+
+      <div class="note">
+        <strong>Как отвечать на собесе:</strong> «Terraform создаёт то, чего ещё нет, и помнит это в state. Ansible и Puppet приводят уже существующие машины к описанному состоянию — разница в модели доставки: push по SSH против pull агентом. На проде обычно связка: Terraform поднял VM → cloud-init поставил агента → Puppet/Ansible держит конфигурацию → CI/CD катает релизы приложения.»
+      </div>
+
+      <h2 id="iac-s1">Terraform — жизненный цикл</h2>
+      <p>HashiCorp, написан на Go в 2014-м. Multi-cloud — один синтаксис работает в AWS, GCP, Azure, Yandex Cloud, локальном Docker'е. С 2023-го у HashiCorp поменялась лицензия (BSL), сообщество форкнуло в <strong>OpenTofu</strong> — полностью совместимый, более «свободный». Синтаксис идентичный, команда <code>tofu</code> вместо <code>terraform</code>.</p>
 
       <div class="code-block">
         <div class="code-header">
@@ -50,8 +94,6 @@
    - Поднять dev на копии prod = git checkout dev-branch + apply</pre>
       </div>
 
-      <h3>Жизненный цикл — 4 команды</h3>
-
       <div class="code-block">
         <div class="code-header">
           <span class="lang">BASH</span>
@@ -68,15 +110,18 @@ terraform apply     # сделать
                     # -auto-approve = без вопросов (для CI)
 
 terraform destroy   # снести всё, что terraform создал
-                    # ⚠️ опасно на проде — снесёт всю инфру</pre>
+                    # ⚠️ опасно на проде — снесёт всю инфру
+
+terraform fmt       # причесать форматирование (в CI: fmt -check)
+terraform validate  # проверить синтаксис без обращения к облаку</pre>
       </div>
 
-      <h3>Минимальный пример — Docker через Terraform</h3>
+      <h2 id="iac-s2">Terraform — HCL: ресурсы, ссылки, интерполяция</h2>
 
       <div class="code-block">
         <div class="code-header">
           <span class="lang">HCL</span>
-          <span>main.tf</span>
+          <span>main.tf — минимальный рабочий пример на Docker</span>
         </div>
         <pre>terraform {
   required_providers {
@@ -128,7 +173,19 @@ image = docker_image.nginx.image_id
    terraform автоматически поймёт зависимость (image создаётся ПЕРВЫМ)</pre>
       </div>
 
-      <h3>State — главная концепция</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>Интерполяция: внутри двойных кавычек ${...} — это выражение</span>
+        </div>
+        <pre>"http://localhost:${var.external_port}"     ← подставится 8090
+"backend-${var.environment}"                ← "backend-prod"
+"${path.module}/scripts/init.sh"            ← абсолютный путь к файлу
+
+# Это как f-strings в Python: f"http://localhost:{port}"</pre>
+      </div>
+
+      <h2 id="iac-s3">Terraform — state, главная концепция</h2>
       <p><code>terraform.tfstate</code> — JSON-файл, в котором terraform <strong>запомнил</strong>, какие реальные ресурсы создал и какие у них ID в облаке. При каждом <code>plan</code> terraform сравнивает три вещи:</p>
 
       <div class="code-block">
@@ -151,27 +208,32 @@ image = docker_image.nginx.image_id
         <br>• <code>terraform state list</code> / <code>state show</code> / <code>state rm</code> — команды для управления.
       </div>
 
-      <h3>Идемпотентность</h3>
-
       <div class="code-block">
         <div class="code-header">
-          <span class="lang">CONCEPT</span>
-          <span>Главная фича</span>
+          <span class="lang">BASH</span>
+          <span>Управление state вручную</span>
         </div>
-        <pre># Запускаешь terraform apply СНОВА, ничего не меняя:
-Apply complete! Resources: 0 added, 0 changed, 0 destroyed.
+        <pre>terraform state list                       # список всех ресурсов в state
+terraform state show docker_container.web  # подробности по ресурсу
 
-# Terraform увидел: желаемое == реальное → ничего не трогает.
-# Безопасно гонять в CI/CD на каждый коммит.
-# В этом ОТЛИЧИЕ от bash-скриптов "ставь nginx" — те бы создали второй.</pre>
+# Самое частое — "забудь про этот ресурс":
+terraform state rm docker_image.nginx
+   # удаляет из state, в реальности НЕ трогает
+   # полезно когда ресурс используется кем-то ещё и destroy падает
+
+# Импортировать существующий ресурс в state:
+terraform import docker_container.web CONTAINER_ID
+   # нужно если ресурс уже создан руками, а ты хочешь
+   # начать им управлять через terraform
+
+terraform state mv docker_container.web docker_container.frontend
+   # переименовать ресурс БЕЗ пересоздания (иначе -/+ destroy and recreate)</pre>
       </div>
-
-      <h3>Типы изменений в плане</h3>
 
       <div class="code-block">
         <div class="code-header">
           <span class="lang">SYMBOLS</span>
-          <span>Что значит каждый символ</span>
+          <span>Как читать plan — что значит каждый символ</span>
         </div>
         <pre>+ create                    создать новый ресурс
 - destroy                   удалить
@@ -183,10 +245,13 @@ Apply complete! Resources: 0 added, 0 changed, 0 destroyed.
 ~ external = 8090 -> 8091 # forces replacement
 
 # На проде "forces replacement" на БД = потеря данных!
-# ВСЕГДА читай plan, особенно ищи знак "-" там, где не ждёшь.</pre>
+# ВСЕГДА читай plan, особенно ищи знак "-" там, где не ждёшь.
+
+# Идемпотентность: повторный apply без изменений →
+Apply complete! Resources: 0 added, 0 changed, 0 destroyed.</pre>
       </div>
 
-      <h3>Variables и outputs — параметризация</h3>
+      <h2 id="iac-s4">Terraform — variables, tfvars, outputs</h2>
 
       <div class="code-block">
         <div class="code-header">
@@ -203,6 +268,16 @@ variable "external_port" {
   type        = number
   default     = 8090
   description = "Порт на хосте"
+
+  validation {
+    condition     = var.external_port > 1024
+    error_message = "Порт должен быть непривилегированным."
+  }
+}
+
+variable "db_password" {
+  type      = string
+  sensitive = true     # не покажется в plan/apply-выводе и логах CI
 }
 
 # В main.tf используется так:
@@ -213,7 +288,7 @@ external = var.external_port</pre>
       <div class="code-block">
         <div class="code-header">
           <span class="lang">HCL</span>
-          <span>terraform.tfvars (значения)</span>
+          <span>terraform.tfvars (значения) и приоритет</span>
         </div>
         <pre># Этот файл terraform читает АВТОМАТИЧЕСКИ:
 container_name = "tf-web-prod"
@@ -233,7 +308,7 @@ external_port  = 80
       <div class="code-block">
         <div class="code-header">
           <span class="lang">HCL</span>
-          <span>outputs.tf — "верни значение наружу"</span>
+          <span>outputs.tf — «верни значение наружу»</span>
         </div>
         <pre>output "container_id" {
   value       = docker_container.web.id
@@ -248,106 +323,2785 @@ output "url" {
 # Использование:
 # terraform output           — показать все
 # terraform output url       — конкретный
-# В CI используют для health-check после apply</pre>
+# terraform output -json     — машинно-читаемо (для CI и для inventory Ansible)</pre>
       </div>
 
-      <h3>Интерполяция строк</h3>
+      <h2 id="iac-s5">Terraform — модули и структура прод-репозитория</h2>
+      <p><strong>Модуль</strong> — папка с <code>.tf</code>-файлами, которую вызывают как функцию: передали переменные — получили ресурсы и outputs. Всё, что делаешь дважды (сервер, сеть, вся среда), выносится в модуль.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TREE</span>
+          <span>Как выглядит боевой terraform-репозиторий</span>
+        </div>
+        <pre>infra/
+├── modules/                  ← переиспользуемые кирпичи (без hardcode!)
+│   ├── network/
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   ├── vm/
+│   └── postgres/
+├── envs/                     ← окружения: у каждого свой state
+│   ├── dev/
+│   │   ├── main.tf           ← вызовы модулей
+│   │   ├── backend.tf        ← где лежит state этого окружения
+│   │   └── terraform.tfvars  ← значения для dev
+│   ├── stage/
+│   └── prod/
+│       ├── main.tf
+│       ├── backend.tf
+│       └── terraform.tfvars
+└── .github/workflows/terraform.yml   ← plan на PR, apply на merge
+
+# Правило: в modules/ НЕТ ни одного упоминания "prod" или конкретного IP.
+# Всё различие между средами живёт в envs/*/terraform.tfvars.</pre>
+      </div>
 
       <div class="code-block">
         <div class="code-header">
           <span class="lang">HCL</span>
-          <span>Внутри двойных кавычек ${...} — это выражение</span>
+          <span>envs/prod/main.tf — вызов модулей</span>
         </div>
-        <pre>"http://localhost:${var.external_port}"     ← подставится 8090
-"backend-${var.environment}"                ← "backend-prod"
-"${path.module}/scripts/init.sh"            ← абсолютный путь к файлу
+        <pre>module "network" {
+  source = "../../modules/network"
+  cidr   = "10.10.0.0/16"
+  env    = "prod"
+}
 
-# Это как f-strings в Python: f"http://localhost:{port}"</pre>
+module "web" {
+  source        = "../../modules/vm"
+  count         = 3                       # три одинаковые ноды
+  name          = "web-${count.index + 1}"
+  subnet_id     = module.network.subnet_id   # ⭐ output одного модуля → вход другого
+  instance_type = "standard-v3-2-8"
+  env           = "prod"
+}
+
+# Модуль из registry (не своя папка, а интернет):
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.8.1"                        # ⭐ ВСЕГДА пинуй версию
+  cidr    = "10.0.0.0/16"
+}
+
+output "web_ips" {
+  value = module.web[*].public_ip          # список IP всех трёх нод
+}</pre>
       </div>
 
-      <h3>Boundary: когда что-то застряло в state</h3>
+      <h2 id="iac-s6">Terraform — backend, workspaces, окружения</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>backend.tf — state в S3 с блокировкой</span>
+        </div>
+        <pre>terraform {
+  backend "s3" {
+    bucket         = "company-tf-state"
+    key            = "prod/infra.tfstate"   # ⭐ у каждого окружения свой key
+    region         = "ru-central1"
+    dynamodb_table = "tf-locks"             # ⭐ lock: двое одновременно не применят
+    encrypt        = true
+  }
+}
+
+# Почему lock критичен: без него два apply одновременно перезапишут
+# state друг друга → terraform "потеряет" половину инфраструктуры.
+
+# Посмотреть/снять зависший лок (например, упал CI-раннер):
+# terraform force-unlock LOCK_ID    ← только когда точно уверен</pre>
+      </div>
 
       <div class="code-block">
         <div class="code-header">
           <span class="lang">BASH</span>
-          <span>Управление state вручную</span>
+          <span>Workspaces — второй способ разделить окружения</span>
         </div>
-        <pre>terraform state list                       # список всех ресурсов в state
-terraform state show docker_container.web  # подробности по ресурсу
+        <pre>terraform workspace new dev
+terraform workspace new prod
+terraform workspace select prod
+terraform workspace list      # * помечает текущий
 
-# Самое частое — "забудь про этот ресурс":
-terraform state rm docker_image.nginx
-   # удаляет из state, в реальности НЕ трогает
-   # полезно когда ресурс используется кем-то ещё и destroy падает
+# В коде текущий workspace виден как terraform.workspace:
+name = "web-${terraform.workspace}"
 
-# Импортировать существующий ресурс в state:
-terraform import docker_container.web CONTAINER_ID
-   # нужно если ресурс уже создан руками, а ты хочешь
-   # начать им управлять через terraform</pre>
+# Когда что выбирать:
+#   папки envs/*  — разные размеры и состав ресурсов (prod ≠ dev). Прод-стандарт.
+#   workspaces    — та же инфра, отличается только размером/количеством.
+# Главная опасность workspaces: одна ошибка select — и apply ушёл в прод.</pre>
       </div>
 
-      <h3>Темы для самостоятельного изучения</h3>
-      <p>Мы прошли основу. На проде встретишь ещё это:</p>
+      <h2 id="iac-s7">Terraform — count, for_each, data, lifecycle</h2>
 
       <div class="code-block">
         <div class="code-header">
-          <span class="lang">ADVANCED</span>
-          <span>Что есть кроме базы</span>
+          <span class="lang">HCL</span>
+          <span>Циклы, чтение чужих ресурсов и защита от сноса</span>
         </div>
-        <pre>МОДУЛИ
-   module "vpc" {
-       source = "./modules/vpc"
-       cidr   = "10.0.0.0/16"
-   }
-   — переиспользуемые блоки конфигурации
-   — официальные модули на registry.terraform.io
+        <pre># COUNT — «сделай N штук»
+resource "docker_container" "web" {
+  count = 3
+  name  = "web-${count.index}"     # web-0, web-1, web-2
+}
+# Минус: удалил средний — terraform пересоздаст все последующие (сдвиг индексов).
 
-BACKEND — где хранить state
-   terraform {
-       backend "s3" {
-           bucket = "my-tf-state"
-           key    = "prod/terraform.tfstate"
-           region = "eu-west-1"
-       }
-   }
-   — храним state в S3, а не локально
-   — DynamoDB добавляет блокировку (lock), чтобы двое не сломали инфру
+# FOR_EACH — «сделай по элементу на каждый ключ» (безопаснее count)
+resource "docker_container" "web" {
+  for_each = {
+    web-a = 8081
+    web-b = 8082
+  }
+  name = each.key
+  ports { internal = 80, external = each.value }
+}
+# Удаление web-a не трогает web-b: ключ, а не индекс.
 
-WORKSPACES — несколько окружений на одном коде
-   terraform workspace new dev
-   terraform workspace new prod
-   terraform workspace select dev
-   — у каждого workspace свой state
+# DATA SOURCE — read-only «посмотри, что уже есть в облаке»
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]
+}
+# использование: ami = data.aws_ami.ubuntu.id
 
-COUNT / FOR_EACH — циклы
-   resource "docker_container" "web" {
-       count = 3
-       name  = "web-${count.index}"
-   }
-   # создаст 3 контейнера: web-0, web-1, web-2
+# LIFECYCLE — управление поведением ресурса
+lifecycle {
+  prevent_destroy       = true      # ⭐ на прод-БД: apply упадёт, но не снесёт
+  create_before_destroy = true      # новый создаётся ДО удаления старого (без даунтайма)
+  ignore_changes        = [tags]    # это поле правят руками — не воюй с ним
+}</pre>
+      </div>
 
-DATA SOURCES — read-only "посмотреть, что есть в облаке"
-   data "aws_ami" "ubuntu" {
-       most_recent = true
-       owners      = ["099720109477"]
-   }
-   # потом: ami = data.aws_ami.ubuntu.id
+      <h2 id="iac-s8">Terraform → Ansible/Puppet: передача эстафеты</h2>
+      <p>Terraform создал голую VM. Дальше её кто-то должен настроить. Три рабочих способа — от худшего к лучшему.</p>
 
-LIFECYCLE — управление поведением ресурса
-   lifecycle {
-       prevent_destroy = true   # запретить destroy
-       create_before_destroy = true  # создать новый ДО удаления старого
-       ignore_changes = [tags]  # игнорировать изменения в этом поле
-   }</pre>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>Способ 1 (антипаттерн): remote-exec прямо из terraform</span>
+        </div>
+        <pre>resource "null_resource" "setup" {
+  provisioner "remote-exec" {
+    inline = ["dnf install -y nginx"]     # ⛔ так не делают
+  }
+}
+# Почему плохо:
+#   - не идемпотентно: terraform не знает, что там внутри произошло
+#   - падение посреди скрипта → ресурс "tainted", state рассинхронизирован
+#   - нет отката, нет проверки, нет повторного применения
+# Сам HashiCorp пишет: provisioners — last resort.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">HCL</span>
+          <span>Способ 2: cloud-init — сервер сам ставит агента при первом старте</span>
+        </div>
+        <pre># envs/prod/main.tf
+resource "yandex_compute_instance" "web" {
+  name = "web-01"
+  metadata = {
+    user-data = templatefile("${path.module}/cloud-init.yaml", {
+      puppet_server = "puppet.example.com"
+      pp_role       = "webserver"
+      env           = "prod"
+    })
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>cloud-init.yaml — bootstrap Puppet-агента одной машиной</span>
+        </div>
+        <pre>#cloud-config
+write_files:
+  # ⭐ trusted facts: сервер узнает роль ноды из САМОГО сертификата,
+  #    подделать нельзя — это основа автоклассификации в Puppet
+  - path: /etc/puppetlabs/puppet/csr_attributes.yaml
+    content: |
+      extension_requests:
+        pp_role: ${pp_role}
+        pp_environment: ${env}
+
+runcmd:
+  - rpm -Uvh https://yum.puppet.com/puppet8-release-el-9.noarch.rpm
+  - dnf install -y puppet-agent
+  - /opt/puppetlabs/bin/puppet config set server ${puppet_server} --section main
+  - /opt/puppetlabs/bin/puppet agent -t --waitforcert 60
+  - systemctl enable --now puppet
+
+# Дальше машина живёт сама: каждые 30 минут забирает каталог с сервера.
+# Terraform к ней больше не прикасается.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Способ 3: terraform output → динамический inventory Ansible</span>
+        </div>
+        <pre># В terraform:
+output "web_ips" { value = module.web[*].public_ip }
+
+# В CI после apply:
+terraform output -json web_ips \
+  | jq -r '.[] | "\(.) ansible_user=deploy"' > inventory/prod_web.ini
+
+ansible-playbook -i inventory/prod_web.ini site.yml --limit webservers
+
+# Ещё чище: плагин динамического inventory облака —
+# ansible читает список машин прямо из API, без промежуточных файлов.</pre>
       </div>
 
       <div class="note">
-        <strong>Главные команды на собес:</strong> <code>init / plan / apply / destroy</code> — жизненный цикл. <code>fmt / validate</code> — форматирование и проверка синтаксиса. <code>state list / show / rm / mv</code> — управление state. <code>import</code> — затащить существующий ресурс под управление terraform'а. <code>output</code> — показать выходные значения. <code>refresh</code> — обновить state из реального облака.
+        <strong>Итог по Terraform:</strong> 4 команды (<code>init → plan → apply → destroy</code>). <strong>Plan читать ВСЕГДА</strong>, особенно искать «destroy» там, где не ждёшь. State — JSON с тем, что terraform знает; в git НЕ кладут (секреты), на проде — remote backend (S3 + lock). Модули в <code>modules/</code> без хардкода, различия сред — в <code>envs/*/terraform.tfvars</code>. Настройку ОС terraform НЕ делает: его работа заканчивается на «машина создана и агент поставлен».
+      </div>
+
+      <h2 id="iac-s9">Ansible — место в IaC и структура прод-репозитория</h2>
+      <p>Полный конспект по Ansible (inventory, playbook, идемпотентность, установка агентов) — в разделе <a href="ansible.html" style="color:#58a6ff;">Ansible</a>. Здесь — то, что относится именно к IaC: как выглядит настоящий репозиторий и почему он выглядит именно так.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TREE</span>
+          <span>Боевой ansible-репозиторий</span>
+        </div>
+        <pre>ansible/
+├── ansible.cfg                 ← настройки: inventory, forks, become, callbacks
+├── inventory/
+│   ├── prod/
+│   │   ├── hosts.yml           ← машины и группы прода
+│   │   ├── group_vars/
+│   │   │   ├── all.yml         ← ⭐ ГЛОБАЛЬНО: для всех машин прода
+│   │   │   ├── webservers.yml  ← для группы
+│   │   │   └── vault.yml       ← секреты (ansible-vault encrypt)
+│   │   └── host_vars/
+│   │       └── web01.yml       ← ⭐ ДЛЯ ОДНОЙ НОДЫ: перебивает группу
+│   └── dev/
+│       └── ...
+├── roles/                      ← своё
+│   ├── common/
+│   ├── nginx/
+│   └── node_exporter/
+├── requirements.yml            ← чужие роли/коллекции из galaxy
+├── site.yml                    ← главный playbook: кто какие роли получает
+└── playbooks/
+    ├── deploy_app.yml
+    └── patching.yml
+
+# Приоритет переменных (упрощённо, снизу вверх — сильнее):
+#   role/defaults → inventory group_vars/all → group_vars/группа
+#   → host_vars/нода → -e "var=value" в командной строке (сильнее всего)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>site.yml — раздача ролей по группам</span>
+        </div>
+        <pre>---
+- name: База на всех машинах
+  hosts: all
+  become: true
+  roles:
+    - common
+    - node_exporter          # мониторинг ставим ВЕЗДЕ
+
+- name: Веб-серверы
+  hosts: webservers
+  become: true
+  roles:
+    - nginx
+    - role: app
+      app_version: "{{ release_version | default('latest') }}"
+
+- name: Базы
+  hosts: databases
+  become: true
+  roles:
+    - postgres</pre>
+      </div>
+
+      <h2 id="iac-s10">Ansible — роли, переменные, шаблоны Jinja2</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TREE</span>
+          <span>Анатомия роли — каждая папка со своим смыслом</span>
+        </div>
+        <pre>roles/nginx/
+├── defaults/main.yml     ← ⭐ переменные по умолчанию (САМЫЙ низкий приоритет)
+│                            сюда кладут всё, что пользователь роли может менять
+├── vars/main.yml         ← внутренние переменные роли (высокий приоритет, не трогают)
+├── tasks/main.yml        ← что делать
+├── handlers/main.yml     ← что перезапустить, ЕСЛИ что-то изменилось
+├── templates/            ← .j2 шаблоны Jinja2 → module: template
+│   └── nginx.conf.j2
+├── files/                ← статика как есть → module: copy
+├── meta/main.yml         ← зависимости от других ролей, метаданные galaxy
+└── molecule/default/     ← тесты роли в контейнере</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>roles/nginx/tasks/main.yml — шаблон + handler</span>
+        </div>
+        <pre>---
+- name: Установить nginx
+  ansible.builtin.package:          # package = универсально (dnf/apt/yum)
+    name: nginx
+    state: present
+
+- name: Развернуть конфиг из шаблона
+  ansible.builtin.template:
+    src: nginx.conf.j2              # ищется в roles/nginx/templates/
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    mode: '0644'
+    validate: 'nginx -t -c %s'      # ⭐ проверить ДО подмены — не сломать прод
+  notify: restart nginx             # ⭐ handler дёрнется ТОЛЬКО при changed
+
+- name: Сервис запущен и в автозагрузке
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">JINJA2</span>
+          <span>templates/nginx.conf.j2 — переменные, условия, циклы</span>
+        </div>
+        <pre>worker_processes {{ ansible_processor_vcpus }};   {# факт о машине #}
+
+upstream app {
+{% for host in groups['appservers'] %}
+    server {{ hostvars[host].ansible_host }}:8000;
+{% endfor %}
+}
+
+server {
+    listen 80;
+    server_name {{ nginx_server_name }};
+{% if nginx_ssl_enabled | default(false) %}
+    listen 443 ssl;
+    ssl_certificate {{ nginx_cert_path }};
+{% endif %}
+}
+
+# {{ ... }} — подставить значение
+# {% ... %} — логика (if / for)
+# {# ... #} — комментарий, в файл не попадёт
+# | default(false) — если переменная не задана, не падать</pre>
+      </div>
+
+      <h2 id="iac-s11">Ansible + Puppet: не «или», а «и»</h2>
+      <p>Частая прод-схема в крупных конторах: <strong>Ansible ставит и регистрирует агента, Puppet дальше держит конфигурацию.</strong> Каждый делает то, что умеет лучше.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>playbooks/bootstrap_puppet.yml — разовая раскатка агента</span>
+        </div>
+        <pre>---
+- name: Bootstrap Puppet-агента на новые машины
+  hosts: new_nodes
+  become: true
+  vars:
+    puppet_server: puppet.example.com
+
+  tasks:
+    - name: Репозиторий Puppet 8
+      ansible.builtin.dnf:
+        name: https://yum.puppet.com/puppet8-release-el-9.noarch.rpm
+        state: present
+        disable_gpg_check: true
+
+    - name: Пакет агента
+      ansible.builtin.dnf:
+        name: puppet-agent
+        state: present
+
+    - name: Роль ноды в csr_attributes (trusted facts, подделать нельзя)
+      ansible.builtin.copy:
+        dest: /etc/puppetlabs/puppet/csr_attributes.yaml
+        content: |
+          extension_requests:
+            pp_role: {{ node_role }}
+            pp_environment: {{ node_env | default('production') }}
+        mode: '0640'
+
+    - name: Указать сервер
+      ansible.builtin.command:
+        cmd: /opt/puppetlabs/bin/puppet config set server {{ puppet_server }} --section main
+      changed_when: false
+
+    - name: Первый прогон — заказать сертификат и дождаться подписи
+      ansible.builtin.command:
+        cmd: /opt/puppetlabs/bin/puppet agent -t --waitforcert 60
+      register: r
+      failed_when: r.rc not in [0, 2]     # ⭐ rc=2 у puppet значит "были изменения", это НЕ ошибка
+      changed_when: r.rc == 2
+
+    - name: Демон агента включён
+      ansible.builtin.service:
+        name: puppet
+        state: started
+        enabled: true</pre>
       </div>
 
       <div class="note">
-        <strong>Итог темы:</strong> Terraform = IaC #1 в индустрии. 4 команды (<code>init → plan → apply → destroy</code>). <strong>Plan читать ВСЕГДА</strong>, особенно искать «destroy» там, где не ждёшь. State — JSON с тем, что terraform знает; в git НЕ кладут (секреты), на проде — remote backend (S3 + lock). Идемпотентность = повторный apply ничего не делает. <strong>Forces replacement</strong> = снос и создание заново — опасно для БД. Variables → tfvars → outputs — параметризация и возврат значений. Когда что-то застряло — <code>terraform state rm</code> «забудь про этот ресурс». На собес: «знаю terraform basics, на проде хочу освоить modules + remote state».
+        <strong>Кто где сильнее:</strong> Ansible — разовые операции и оркестрация по порядку (выкатить релиз на 5 машин по очереди, накатить патчи, эвакуировать ноду). Puppet — <em>непрерывное</em> удержание состояния: правил конфиг руками — через 30 минут он вернулся как в git. Поэтому Ansible часто зовут «руками админа», а Puppet — «иммунной системой парка».
       </div>
+
+      <h2 id="iac-s12">Puppet — архитектура и цикл агента</h2>
+      <p><strong>Puppet</strong> — система управления конфигурацией с агентами. Ты описываешь на своём DSL, <em>каким должен быть</em> сервер; агент на каждой машине сам, без твоего участия, приводит машину к этому описанию. Раз в 30 минут. Вечно.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">КОНЦЕПТ</span>
+          <span>Push (Ansible) vs Pull (Puppet)</span>
+        </div>
+        <pre>Ansible = PUSH: ты запускаешь playbook со своей машины, он идёт по SSH
+          на серверы и приводит их в порядок. Агентов нет. Разовый визит.
+
+Puppet  = PULL: на каждом сервере живёт АГЕНТ (демон puppet), который сам
+          раз в 30 минут ходит к Puppet-серверу: «какой я должен быть?» —
+          получает каталог и приводит себя в порядок.
+
+Следствия pull-модели:
++ самолечение: руками поменял конфиг на сервере → через 30 минут агент
+  вернул как в манифесте (дрейф конфигурации невозможен в принципе)
++ масштаб: 10 000 серверов сами себя обслуживают, никто их не обходит
++ новая машина сама себя настраивает, как только получила сертификат
+- нужен агент на каждой машине и центральный сервер (сложнее вход)
+- изменения не мгновенные (жди цикла агента или пинай вручную)</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">FLOW</span>
+          <span>Что происходит за один прогон агента — 6 шагов</span>
+        </div>
+        <pre>1. FACTS. Агент запускает facter и собирает факты о себе:
+   ОС, версия, IP, память, диски, виртуализация, hostname, кастомные факты.
+   Это ДАННЫЕ О МАШИНЕ, которые уедут на сервер.
+
+2. ЗАПРОС. Агент идёт на puppetserver (порт 8140/tcp, mTLS по сертификатам)
+   и отдаёт: «я web01.example.com, вот мои факты, дай каталог».
+
+3. КОМПИЛЯЦИЯ. Сервер:
+   - определяет, КАКИЕ КЛАССЫ у этой ноды (site.pp / Hiera-классификация)
+   - берёт для них данные из Hiera, подставляя факты в пути иерархии
+   - выполняет манифесты .pp, рендерит шаблоны .epp
+   - на выходе — КАТАЛОГ: плоский список ресурсов с зависимостями (JSON)
+
+   ⭐ Важно: манифест выполняется НА СЕРВЕРЕ, на ноду едет уже результат.
+
+4. ПРИМЕНЕНИЕ. Агент получает каталог и по каждому ресурсу спрашивает
+   систему: «пакет nginx стоит?» — если да, ничего не делает (idempotent),
+   если нет — ставит. И так по всем ресурсам, в порядке зависимостей.
+
+5. ОТЧЁТ. Агент отправляет на сервер report: что изменилось, что упало,
+   сколько заняло. Сервер складывает в PuppetDB / отчёты.
+
+6. СОН до следующего runinterval (по умолчанию 1800 секунд = 30 минут).</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СЛОВАРЬ</span>
+          <span>Термины, без которых чужой прод не читается</span>
+        </div>
+        <pre>Манифест (.pp)   файл на языке Puppet с описанием ресурсов
+Ресурс           единица «что должно быть»: package, file, service, user…
+Класс            именованный набор ресурсов, который можно включить (include)
+Модуль           папка со структурой: манифесты + файлы + шаблоны + метаданные
+Каталог          скомпилированный под КОНКРЕТНУЮ ноду список ресурсов
+Facter / факты   сведения о машине (os.family, networking.fqdn, memory…)
+Hiera            хранилище ДАННЫХ (yaml), отдельно от кода
+Profile          твоя обёртка над технологией: «наш nginx, настроенный по-нашему»
+Role             набор профилей: «это веб-сервер». Нода получает ровно одну роль
+PuppetDB         база фактов, каталогов и отчётов всех нод (по ней делают запросы)
+r10k / Code Mgr  инструмент, который выкачивает код из git на puppetserver
+Environment      окружение (production/dev) = ВЕТКА git = папка на сервере
+certname         имя ноды в сертификате — её идентификатор во всей системе
+trusted facts    факты из сертификата, которые нода НЕ может подделать</pre>
+      </div>
+
+      <h2 id="iac-s13">Puppet — установка сервера и агента, сертификаты</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Puppet-сервер (RHEL/РЕД ОС/Rocky 9)</span>
+        </div>
+        <pre># 1. Репозиторий Puppet 8
+rpm -Uvh https://yum.puppet.com/puppet8-release-el-9.noarch.rpm
+
+# 2. Сервер (тянет за собой JVM и puppet-agent)
+dnf install -y puppetserver
+
+# 3. Память JVM — самая частая причина «сервер не стартует».
+#    По умолчанию 2 ГБ; на маленькой ВМ уменьшить, на боевой — увеличить:
+vi /etc/sysconfig/puppetserver
+    JAVA_ARGS="-Xms1g -Xmx1g -Djruby.logger.class=..."
+
+# 4. Кто он такой (важно: имя должно резолвиться у всех агентов!)
+puppet config set server puppet.example.com --section main
+puppet config set dns_alt_names "puppet,puppet.example.com" --section server
+
+# 5. Старт. Слушает 8140/tcp
+systemctl enable --now puppetserver
+firewall-cmd --add-port=8140/tcp --permanent && firewall-cmd --reload
+
+# ⭐ Бинарники НЕ в PATH по умолчанию: /opt/puppetlabs/bin/puppet
+echo 'export PATH=$PATH:/opt/puppetlabs/bin' >> /etc/profile.d/puppet.sh</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Агент на ноде + подписание сертификата</span>
+        </div>
+        <pre># ── НА НОДЕ ──────────────────────────────────────────────────────────
+rpm -Uvh https://yum.puppet.com/puppet8-release-el-9.noarch.rpm
+dnf install -y puppet-agent
+
+/opt/puppetlabs/bin/puppet config set server   puppet.example.com --section main
+/opt/puppetlabs/bin/puppet config set certname web01.example.com  --section main
+#   certname — паспорт ноды. Поменяешь потом — сертификат придётся выпускать заново.
+
+# Первый прогон: агент генерирует ключ, шлёт CSR и ЖДЁТ подписи
+/opt/puppetlabs/bin/puppet agent -t --waitforcert 60
+
+# ── НА СЕРВЕРЕ ───────────────────────────────────────────────────────
+puppetserver ca list                       # кто просится (pending)
+puppetserver ca sign --certname web01.example.com
+puppetserver ca list --all                 # все выданные
+puppetserver ca clean --certname web01.example.com   # отозвать (при переустановке ноды!)
+
+# ── СНОВА НА НОДЕ ────────────────────────────────────────────────────
+systemctl enable --now puppet              # демон: прогон каждые 30 минут
+puppet agent -t                            # ручной прогон прямо сейчас</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">SSL_connect / certificate verify failed / hostname does not match</div>
+        <pre>Error: certificate verify failed [self signed certificate in certificate chain]
+Error: The certificate for 'CN=web01' does not match its private key</pre>
+        <p>Классика после переустановки ноды с тем же именем: на сервере остался старый сертификат, на ноде — новый ключ.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Лечение — чистить С ОБЕИХ сторон</div>
+        <pre># на сервере:
+puppetserver ca clean --certname web01.example.com
+# на ноде:
+rm -rf /etc/puppetlabs/puppet/ssl
+puppet agent -t --waitforcert 60
+# и снова подписать на сервере</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CONFIG</span>
+          <span>/etc/puppetlabs/puppet/puppet.conf — что там реально важно</span>
+        </div>
+        <pre>[main]
+server      = puppet.example.com   # к кому ходить за каталогом
+certname    = web01.example.com    # кто я
+environment = production           # какую ветку кода просить
+runinterval = 30m                  # как часто (0 = только вручную)
+
+[agent]
+noop        = false                # true = «только показывай, ничего не меняй» (весь сервер в dry-run)
+splay       = true                 # разбросать старты агентов во времени,
+splaylimit  = 15m                  #   чтобы 500 нод не пришли в одну секунду
+report      = true                 # слать отчёты на сервер
+
+[server]
+strict_variables = true            # падать на опечатках в именах переменных
+autosign         = false           # ⭐ на проде НЕ включать «подпишу кого угодно»</pre>
+      </div>
+
+      <h2 id="iac-s14">Puppet — что где лежит на боевом сервере</h2>
+      <p>Первое, что нужно, когда тебя пустили на незнакомый прод: карта. Всё Puppet-хозяйство живёт в двух корнях — <code>/etc/puppetlabs</code> (конфиги и код) и <code>/opt/puppetlabs</code> (бинарники и рабочие данные).</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TREE</span>
+          <span>Карта путей — распечатать и повесить</span>
+        </div>
+        <pre>/etc/puppetlabs/
+├── puppet/
+│   ├── puppet.conf              ⭐ конфиг агента и сервера
+│   ├── csr_attributes.yaml      trusted facts при первом запросе сертификата
+│   ├── hiera.yaml               глобальная Hiera (обычно почти пустая)
+│   └── ssl/                     ⭐ сертификаты ЭТОЙ ноды (ключи, CA)
+├── puppetserver/
+│   ├── conf.d/                  настройки сервера (webserver.conf, auth.conf, ca.conf)
+│   └── ca/                      ⭐ центр сертификации: signed/, requests/, ca_crl.pem
+├── code/
+│   └── environments/            ⭐⭐⭐ ВЕСЬ КОД ЖИВЁТ ЗДЕСЬ
+│       ├── production/          = ветка production в git
+│       │   ├── manifests/site.pp    точка входа, классификация нод
+│       │   ├── modules/             чужие модули (кладёт r10k — РУКАМИ НЕ ПРАВИТЬ)
+│       │   ├── site-modules/        свои модули: profile, role
+│       │   ├── data/                ⭐ Hiera-данные (yaml/eyaml)
+│       │   ├── hiera.yaml           ⭐ иерархия поиска данных
+│       │   ├── environment.conf     modulepath этого окружения
+│       │   └── Puppetfile           список внешних модулей и их версий
+│       └── dev/                 = ветка dev, полная копия структуры
+└── r10k/r10k.yaml               откуда качать control-repo
+
+/opt/puppetlabs/
+├── bin/puppet, bin/facter       ⭐ бинарники (в PATH обычно НЕТ)
+├── puppet/cache/
+│   ├── state/last_run_report.yaml    ⭐ что было в последний прогон
+│   ├── state/last_run_summary.yaml   краткая сводка (её мониторят!)
+│   ├── client_data/catalog/*.json    последний полученный каталог
+│   └── facts.d/                      кастомные факты
+└── server/data/puppetserver/         рабочие данные сервера
+
+/var/log/puppetlabs/puppetserver/
+├── puppetserver.log             ⭐ ошибки компиляции каталога — СМОТРЕТЬ ЗДЕСЬ
+└── puppetserver-access.log      кто и когда приходил за каталогом
+
+journalctl -u puppet -f          ⭐ логи АГЕНТА на ноде
+journalctl -u puppetserver -f    логи сервера</pre>
+      </div>
+
+      <div class="note">
+        <strong>Правило номер один:</strong> в <code>/etc/puppetlabs/code/</code> ничего не правят руками. Это <em>развёрнутая копия git-репозитория</em>, её перезатрёт следующий деплой r10k. Правишь в git → мержишь → r10k выкатывает. Если увидел на проде «поправлю тут по-быстрому» — это будущий инцидент.
+      </div>
+
+      <h2 id="iac-s15">Puppet — control-repo: структура прод-проекта</h2>
+      <p><strong>Control-repo</strong> — главный git-репозиторий Puppet-хозяйства. Его ветки становятся окружениями: ветка <code>production</code> → каталог <code>environments/production</code>, ветка <code>dev</code> → <code>environments/dev</code>. Это ключевая идея: <em>чтобы протестировать изменение, создаёшь ветку и переводишь одну ноду в это окружение.</em></p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TREE</span>
+          <span>Как реально выглядит control-repo в компании</span>
+        </div>
+        <pre>control-repo/                    (git, ветка production = прод)
+├── manifests/
+│   └── site.pp                  ⭐ классификация: какая нода что получает
+├── site-modules/                ⭐ СВОЙ КОД (иногда папка называется site/)
+│   ├── role/
+│   │   └── manifests/
+│   │       ├── webserver.pp     class role::webserver
+│   │       ├── database.pp      class role::database
+│   │       └── monitoring.pp    class role::monitoring
+│   └── profile/
+│       └── manifests/
+│           ├── base.pp          class profile::base — общая база всех машин
+│           ├── base/
+│           │   ├── users.pp     class profile::base::users
+│           │   ├── ssh.pp       class profile::base::ssh
+│           │   ├── motd.pp      class profile::base::motd
+│           │   └── firewall.pp  class profile::base::firewall
+│           ├── web/
+│           │   └── nginx.pp     class profile::web::nginx
+│           ├── app/
+│           │   └── shopfront.pp class profile::app::shopfront
+│           └── monitoring/
+│               ├── node_exporter.pp
+│               ├── prometheus.pp
+│               └── alertmanager.pp
+├── data/                        ⭐ HIERA — все ДАННЫЕ, ноль кода
+│   ├── common.yaml              глобальные значения для всех
+│   ├── nodes/
+│   │   └── web01.example.com.yaml   ⭐ только для этой ноды
+│   ├── roles/
+│   │   ├── webserver.yaml
+│   │   └── database.yaml
+│   ├── os/
+│   │   ├── RedHat.yaml
+│   │   └── Debian.yaml
+│   └── secrets/
+│       └── common.eyaml         зашифрованные секреты
+├── hiera.yaml                   ⭐ порядок поиска данных
+├── environment.conf             modulepath = site-modules:modules:$basemodulepath
+├── Puppetfile                   внешние модули и их ВЕРСИИ
+└── .github/workflows/ci.yml     puppet-lint + rspec-puppet на каждый PR</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">RUBY</span>
+          <span>Puppetfile — зависимости, как package.json</span>
+        </div>
+        <pre>forge 'https://forge.puppet.com'
+
+# ⭐ ВСЕГДА фиксируй версию: ':latest' на проде — это лотерея
+mod 'puppetlabs-stdlib',      '9.6.0'    # без него не живёт почти ничего
+mod 'puppetlabs-concat',      '9.0.2'    # сборка файла из кусочков
+mod 'puppetlabs-firewall',    '8.1.0'
+mod 'puppet-nginx',           '6.0.0'
+mod 'puppet-prometheus',      '15.0.0'
+mod 'puppetlabs-postgresql', '10.3.0'
+
+# Модуль прямо из своего git:
+mod 'internal_billing',
+  git:    'git@git.company.ru:puppet/internal_billing.git',
+  ref:    'v2.4.1'</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>r10k — доставка кода из git на puppetserver</span>
+        </div>
+        <pre># /etc/puppetlabs/r10k/r10k.yaml
+sources:
+  main:
+    remote:  'git@git.company.ru:puppet/control-repo.git'
+    basedir: '/etc/puppetlabs/code/environments'
+
+# Выкатить ВСЕ окружения (все ветки) + модули из Puppetfile:
+r10k deploy environment -p
+
+# Выкатить одно окружение (быстро, так делают из CI после merge):
+r10k deploy environment production -p
+#   -p = ещё и модули из Puppetfile подтянуть
+
+# Проверка, что приехало:
+ls -la /etc/puppetlabs/code/environments/
+cat  /etc/puppetlabs/code/environments/production/.r10k-deploy.json   # какой коммит развёрнут</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">WORKFLOW</span>
+          <span>Как выглядит рабочий день в этой схеме</span>
+        </div>
+        <pre>1. git checkout -b feature/nginx-gzip
+2. правишь site-modules/profile/manifests/web/nginx.pp и data/roles/webserver.yaml
+3. git push  → CI гоняет puppet-lint, puppet parser validate, rspec-puppet
+4. r10k выкатывает ветку как ОКРУЖЕНИЕ feature_nginx_gzip
+5. на тестовой ноде: puppet agent -t --environment feature_nginx_gzip --noop
+      смотришь дифф, ничего не меняя
+6. без --noop на одной канареечной ноде — проверяешь боем
+7. PR → ревью → merge в production
+8. r10k deploy environment production -p (обычно автоматом из CI)
+9. в течение 30 минут изменение само разъезжается по всему парку</pre>
+      </div>
+
+      <h2 id="iac-s16">Puppet — язык: ресурсы, атрибуты, зависимости</h2>
+      <p>Puppet описывает <strong>состояние</strong>, а не шаги. Единица описания — <strong>ресурс</strong>. Читается как предложение: «тип ресурса { заголовок: атрибут =&gt; значение }».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Разбор синтаксиса по скобкам</span>
+        </div>
+        <pre>package { 'nginx':
+  ensure => installed,
+}
+│         │         │
+│         │         └─ значение атрибута
+│         └─ атрибут (свойство желаемого состояния)
+└─ ЗАГОЛОВОК ресурса (title) — уникальный идентификатор в каталоге
+
+package   ← ТИП ресурса (что за сущность)
+{ }       ← тело ресурса
+'nginx'   ← title, после него ДВОЕТОЧИЕ
+=>        ← «толстая стрелка», присваивание атрибута (не = !)
+,         ← запятая после КАЖДОГО атрибута, включая последний (хороший тон)
+;         ← разделитель, если в одном блоке несколько заголовков
+
+# Несколько ресурсов одного типа сразу:
+package { ['nginx', 'git', 'htop']:
+  ensure => installed,
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Ресурсы, которые встречаются в 90% манифестов</span>
+        </div>
+        <pre>package { 'nginx':      ensure => 'installed' }    # или present / absent / '1.24.0' / latest
+service { 'nginx':      ensure => running, enable => true }
+file    { '/etc/app.conf':
+  ensure  => file,        # file / directory / link / absent
+  owner   => 'root',
+  group   => 'root',
+  mode    => '0644',      # ⭐ строкой и с ведущим нулём!
+  content => 'текст',     # ИЛИ source, ИЛИ content => epp(...)
+}
+user    { 'deploy':     ensure => present, shell => '/bin/bash', managehome => true }
+group   { 'deploy':     ensure => present }
+exec    { 'systemctl daemon-reload':
+  path        => ['/bin','/usr/bin','/usr/sbin'],
+  refreshonly => true,    # ⭐ выполнится ТОЛЬКО если его кто-то notify-нул
+}
+cron    { 'backup':     command => '/usr/local/bin/backup.sh', hour => 3, minute => 0 }
+ssh_authorized_key { 'kirill@laptop': user => 'deploy', type => 'ssh-ed25519', key => 'AAAA...' }
+mount, host, sysctl, firewalld_port, vcsrepo, archive — из модулей forge</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>⭐ Зависимости — четыре метапараметра и стрелки</span>
+        </div>
+        <pre># Puppet НЕ гарантирует порядок сам по себе (хотя по умолчанию идёт
+# сверху вниз по манифесту). Реальные зависимости объявляют явно:
+
+require => Package['nginx']    # «я после пакета»
+before  => Service['nginx']    # «я до сервиса»
+notify  => Service['nginx']    # «я после + если Я изменился, дёрни его»
+subscribe => File['/etc/nginx/nginx.conf']  # «я после + если ОН изменился, перезапусти меня»
+
+# ⭐ Ссылка на ресурс = Тип с БОЛЬШОЙ буквы + [title]:
+#   Package['nginx'], File['/etc/nginx/nginx.conf'], Class['profile::base']
+
+# Цепочки стрелками — то же самое, но короче:
+Package['nginx'] -> File['/etc/nginx/nginx.conf'] ~> Service['nginx']
+#                 │                                │
+#                 └ «просто порядок»               └ «порядок + перезапуск при изменении»
+
+# Полный боевой кусок:
+package { 'nginx': ensure => installed }
+
+file { '/etc/nginx/nginx.conf':
+  ensure  => file,
+  content => epp('profile/nginx.conf.epp', { 'workers' => $facts['processors']['count'] }),
+  require => Package['nginx'],     # сначала пакет создаст каталог /etc/nginx
+  notify  => Service['nginx'],     # ⭐ поменялся конфиг → перезапуск
+}
+
+service { 'nginx':
+  ensure => running,
+  enable => true,
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Переменные, факты, условия, циклы</span>
+        </div>
+        <pre>$app_dir = '/opt/shopfront'          # ⭐ переменная ВСЕГДА с $, задаётся один раз
+                                     #   переприсвоить в той же области нельзя!
+
+# Факты о машине (facter):
+$facts['os']['family']               # RedHat / Debian
+$facts['os']['release']['major']     # 9
+$facts['networking']['fqdn']         # web01.example.com
+$facts['networking']['ip']           # 10.0.0.11
+$facts['memory']['system']['total_bytes']
+$facts['processors']['count']
+
+# Trusted facts — из сертификата, нода подделать НЕ может:
+$trusted['certname']                     # web01.example.com
+$trusted['extensions']['pp_role']        # webserver   ← из csr_attributes.yaml
+$trusted['extensions']['pp_environment'] # prod
+
+# Интерполяция — ТОЛЬКО в двойных кавычках:
+"Сервер ${facts['networking']['fqdn']} готов"     # подставится
+'Сервер ${facts[...]}'                            # НЕ подставится, так и напечатает
+
+# Условия:
+if $facts['os']['family'] == 'RedHat' {
+  $pkg = 'httpd'
+} elsif $facts['os']['family'] == 'Debian' {
+  $pkg = 'apache2'
+} else {
+  fail("ОС ${facts['os']['family']} не поддерживается")   # ⭐ падать явно, а не молча
+}
+
+# Селектор (короткая форма):
+$pkg = $facts['os']['family'] ? {
+  'RedHat' => 'httpd',
+  'Debian' => 'apache2',
+  default  => fail('unsupported'),
+}
+
+case $facts['os']['family'] {
+  'RedHat': { include profile::base::selinux }
+  default:  { }
+}
+
+# Циклы:
+['nginx','git','htop'].each |$p| {
+  package { $p: ensure => installed }
+}
+
+$users.each |$login, $opts| {          # по хешу: ключ и значение
+  notice("Создаю ${login}")
+}</pre>
+      </div>
+
+      <h2 id="iac-s17">Puppet — классы: объявление, параметры, include</h2>
+      <p><strong>Класс</strong> — именованный блок кода, который можно включить в каталог ноды. Это главный строительный элемент: всё, что ты пишешь, живёт в классах.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Определение класса с параметрами — разбор до скобки</span>
+        </div>
+        <pre>class profile::web::nginx (
+  String[1]              $server_name = 'app.example.com',
+  Stdlib::Port           $port        = 80,
+  Boolean                $ssl         = false,
+  Array[String]          $extra_pkgs  = [],
+  Optional[String]       $cert_path   = undef,
+  Hash[String, String]   $headers     = {},
+) {
+  # ── тело класса: ресурсы ──
+  package { ['nginx'] + $extra_pkgs:
+    ensure => installed,
+  }
+  ...
+}
+
+РАЗБОР:
+class            ключевое слово — ОПРЕДЕЛЯЕМ (ещё не включаем!)
+profile::web::nginx
+                 полное имя. :: — разделитель пространств имён.
+                 ⭐ имя ЖЁСТКО связано с путём файла (см. следующий раздел)
+( ... )          список параметров. Если параметров нет — скобки не пишут вообще
+String[1]        ТИП параметра. [1] = минимум 1 символ, пустую строку не примет.
+                 Типы: String, Integer, Boolean, Array, Hash, Enum['a','b'],
+                       Optional[X] (можно undef), Variant[X,Y], Stdlib::Absolutepath
+                 ⭐ типы — это бесплатная валидация: неверные данные из Hiera
+                    уронят компиляцию каталога, а не прод в 3 часа ночи
+$server_name     имя параметра, ВСЕГДА с $
+= 'app...'       значение по умолчанию. Без него параметр ОБЯЗАТЕЛЕН:
+                 не задал в Hiera → «Class[...]: expects a value for parameter»
+,                запятая после каждого параметра
+) {              закрыли параметры, открыли тело
+}                конец класса</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>⭐ Как ВКЛЮЧАТЬ класс: include / resource-like / contain / require</span>
+        </div>
+        <pre># 1) include — ОСНОВНОЙ способ. Параметры придут автоматически из Hiera.
+include profile::web::nginx
+include profile::base::users, profile::base::ssh    # можно списком
+#   Можно писать сколько угодно раз в разных местах — дубликата НЕ будет.
+#   ⭐ 95% кода на проде — именно include.
+
+# 2) resource-like — параметры прямо в коде:
+class { 'profile::web::nginx':
+  server_name => 'shop.example.com',
+  port        => 8080,
+}
+#   ⛔ ГЛАВНАЯ ЛОВУШКА: так класс можно объявить ТОЛЬКО ОДИН РАЗ во всём каталоге.
+#   Второе объявление (даже include в другом месте) → ошибка:
+#      "Duplicate declaration: Class[Profile::Web::Nginx] is already declared"
+#   Поэтому на проде параметры кладут в Hiera и пишут include.
+
+# 3) contain — «класс ВНУТРИ меня»: гарантия, что зависимости на мой класс
+#    распространятся и на вложенный (иначе он «выпадает» из порядка).
+class profile::app::shopfront {
+  contain profile::app::shopfront::db
+  contain profile::app::shopfront::web
+  Class['profile::app::shopfront::db'] -> Class['profile::app::shopfront::web']
+}
+
+# 4) require — include + «сначала он, потом я»:
+class profile::web::nginx {
+  require profile::base::firewall
+  ...
+}
+
+# 5) Порядок между классами на верхнем уровне:
+Class['profile::base'] -> Class['profile::web::nginx'] -> Class['profile::app::shopfront']</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Defined type — «класс, который можно создать много раз»</span>
+        </div>
+        <pre># Класс — синглтон: один на каталог. Нужно 5 виртуальных хостов nginx?
+# Нужен defined type (define). Это «свой тип ресурса».
+
+define profile::web::vhost (
+  String       $server_name,
+  Stdlib::Port $port     = 80,
+  String       $root     = "/var/www/${title}",   # ⭐ $title = заголовок вызова
+) {
+  file { "/etc/nginx/conf.d/${title}.conf":
+    ensure  => file,
+    content => epp('profile/vhost.conf.epp', {
+      'server_name' => $server_name,
+      'port'        => $port,
+      'root'        => $root,
+    }),
+    notify  => Service['nginx'],
+  }
+}
+
+# Использование — как обычный ресурс, СКОЛЬКО УГОДНО раз:
+profile::web::vhost { 'shop':
+  server_name => 'shop.example.com',
+}
+profile::web::vhost { 'admin':
+  server_name => 'admin.example.com',
+  port        => 8443,
+}
+
+# ⭐ Правило: class = «эта штука на сервере одна» (nginx, sshd).
+#            define = «таких штук может быть много» (vhost, юзер, бэкап-джоб).</pre>
+      </div>
+
+      <h2 id="iac-s18">Puppet — модуль, автозагрузка и расширения файлов</h2>
+      <p>Puppet находит класс по имени <strong>автоматически</strong>, без всяких import. Правило жёсткое: имя класса = путь к файлу. Ошибся на один уровень — «Could not find class».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ПРАВИЛО</span>
+          <span>Имя класса → путь файла (autoloading)</span>
+        </div>
+        <pre>class profile                 → profile/manifests/init.pp        ⭐ корневой = init.pp
+class profile::base           → profile/manifests/base.pp
+class profile::base::users    → profile/manifests/base/users.pp
+class role::webserver         → role/manifests/webserver.pp
+class nginx::config           → nginx/manifests/config.pp
+
+# То есть: ПЕРВЫЙ сегмент — имя модуля (папки),
+#          дальше — путь внутри manifests/,
+#          последний сегмент — имя файла .pp
+
+# Шаблоны и файлы ищутся так же:
+epp('profile/motd.epp')                        → profile/templates/motd.epp
+template('profile/motd.erb')                   → profile/templates/motd.erb
+source => 'puppet:///modules/profile/index.html' → profile/files/index.html
+#                              └─ ВСЕГДА слово modules, потом имя модуля</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TREE</span>
+          <span>Полная структура модуля — что в какой папке</span>
+        </div>
+        <pre>site-modules/profile/
+├── manifests/            *.pp   ⭐ КОД: классы и defined types
+│   ├── init.pp
+│   ├── base.pp
+│   └── base/users.pp
+├── files/                любые  ⭐ СТАТИКА как есть: копируется байт-в-байт
+│   └── nginx/index.html         → source => 'puppet:///modules/profile/nginx/index.html'
+├── templates/            *.epp / *.erb  ⭐ ШАБЛОНЫ: рендерятся с переменными
+│   ├── motd.epp
+│   └── vhost.conf.epp
+├── lib/
+│   ├── facter/            *.rb  кастомные факты на Ruby
+│   ├── puppet/functions/  *.rb  кастомные функции
+│   └── puppet/type|provider/    свои типы ресурсов
+├── functions/            *.pp   функции на самом Puppet-языке
+├── types/                *.pp   алиасы типов (Profile::Username = Pattern[/^[a-z]+$/])
+├── data/                 *.yaml данные модуля (module-level Hiera)
+├── hiera.yaml                   иерархия ДАННЫХ МОДУЛЯ
+├── tasks/                *.sh/*.rb + *.json — задачи Bolt (разовые действия)
+├── plans/                *.pp   планы Bolt (оркестрация)
+├── spec/                        тесты rspec-puppet
+├── metadata.json         ⭐     имя, версия, зависимости, поддерживаемые ОС
+├── REFERENCE.md                 автодока (puppet-strings)
+└── examples/                    примеры вызова</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">РАСШИРЕНИЯ</span>
+          <span>Какое расширение что означает — шпаргалка</span>
+        </div>
+        <pre>.pp      манифест на языке Puppet. Классы, ресурсы, defined types.
+         Лежит ТОЛЬКО в manifests/ (и functions/, plans/).
+
+.epp     Embedded Puppet — ⭐ современный шаблон. Переменные Puppet + типизированные
+         параметры. Лежит в templates/. Подключается функцией epp().
+
+.erb     Embedded Ruby — старый шаблон (наследие). Тоже в templates/,
+         подключается template(). Синтаксис Ruby, переменные через @.
+         Новое пишут на .epp, .erb трогают только в легаси.
+
+.yaml    Hiera-данные. Лежат в data/. Просто ключ-значение, НИКАКОЙ логики.
+.eyaml   то же самое, но значения зашифрованы (hiera-eyaml). Секреты.
+.json    metadata.json модуля; ещё json_data-бэкенд Hiera (реже).
+.rb      Ruby: кастомные факты (lib/facter/), функции, типы, провайдеры.
+Puppetfile   без расширения — список внешних модулей для r10k.
+hiera.yaml   конфигурация иерархии (не данные! только порядок поиска).
+environment.conf   настройки окружения: modulepath, config_version.</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Could not find class ::profile::web::nginx</div>
+        <pre>Error: Evaluation Error: Error while evaluating a Function Call,
+Could not find class ::profile::web::nginx for web01.example.com</pre>
+        <p>Причины по частоте: (1) файл лежит не по правилу автозагрузки — <code>web/nginx.pp</code>, а не <code>web_nginx.pp</code>; (2) папка модуля не в <code>modulepath</code> (проверь <code>environment.conf</code>); (3) r10k ещё не выкатил ветку; (4) опечатка в имени; (5) модуль есть в Puppetfile, но <code>r10k deploy -p</code> не запускали.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Диагностика</div>
+        <pre>puppet config print modulepath --environment production
+ls /etc/puppetlabs/code/environments/production/site-modules/profile/manifests/web/
+puppet parser validate site-modules/profile/manifests/web/nginx.pp
+r10k deploy environment production -p</pre>
+      </div>
+
+      <h2 id="iac-s19">Puppet — шаблоны: .epp и .erb</h2>
+      <p>Шаблон нужен, когда файл на каждой машине <em>почти</em> одинаковый: отличается hostname, портом, списком бэкендов. Статику кладут в <code>files/</code>, изменяемое — в <code>templates/</code>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EPP</span>
+          <span>templates/motd.epp — синтаксис по тегам</span>
+        </div>
+        <pre>&lt;%- | String            $hostname,
+      String            $env,
+      String            $role,
+      Array[String]     $owners,
+      Optional[String]  $ticket = undef,
+| -%&gt;
+===============================================================
+  ⚙️  Сервер под управлением Puppet. Правки руками не выживут.
+===============================================================
+  Хост:    &lt;%= $hostname %&gt;
+  Роль:    &lt;%= $role %&gt;   (&lt;%= $env %&gt;)
+  Владельцы:
+&lt;% $owners.each |$o| { -%&gt;
+    - &lt;%= $o %&gt;
+&lt;% } -%&gt;
+&lt;% if $ticket { -%&gt;
+  ⚠️  ВНИМАНИЕ: идут работы по тикету &lt;%= $ticket %&gt;
+&lt;% } -%&gt;
+===============================================================
+
+РАЗБОР ТЕГОВ:
+&lt;%- | ... | -%&gt;   ⭐ БЛОК ПАРАМЕТРОВ. Только в самом начале файла.
+                  Объявляет, что шаблон ждёт на вход, и с какими типами.
+                  Передашь лишнее или не то — ошибка при компиляции.
+&lt;%= выражение %&gt;  ВЫВЕСТИ значение в файл
+&lt;%  код       %&gt;  выполнить БЕЗ вывода (if / each / присваивание)
+&lt;%# коммент   %&gt;  комментарий, в файл не попадёт
+     -%&gt;          дефис = «съесть перевод строки после тега»
+                  (без него получишь файл в дырках от пустых строк)
+&lt;%-              дефис слева = «съесть пробелы перед тегом»</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Как подключить шаблон в манифесте</span>
+        </div>
+        <pre>file { '/etc/motd':
+  ensure  => file,
+  owner   => 'root',
+  mode    => '0644',
+  content => epp('profile/motd.epp', {          # ⭐ 'модуль/файл.epp'
+    'hostname' => $facts['networking']['fqdn'],
+    'env'      => $environment,
+    'role'     => $trusted['extensions']['pp_role'],
+    'owners'   => $owners,                       # значение пришло из Hiera
+    'ticket'   => $maintenance_ticket,
+  }),
+}
+
+# ERB (легаси-вариант того же):
+content => template('profile/motd.erb'),
+#   в .erb переменные берутся из области видимости класса: &lt;%= @hostname %&gt;
+#   параметры явно не передаются — поэтому .epp лучше: явный контракт
+
+# Шаблон в переменную, без файла:
+$rendered = epp('profile/alert_rule.epp', { 'threshold' => 90 })
+
+# Строка-шаблон прямо в коде (для мелочей):
+$msg = inline_epp('Диск на &lt;%= $h %&gt; заполнен', { 'h' => $facts['networking']['hostname'] })
+
+# Статический файл БЕЗ подстановок — не шаблон, а source:
+file { '/var/www/html/logo.png':
+  source => 'puppet:///modules/profile/web/logo.png',
+}</pre>
+      </div>
+
+      <div class="note">
+        <strong>Когда что:</strong> <code>source</code> — файл не меняется от машины к машине (логотип, CA-сертификат, статичный скрипт). <code>content =&gt; epp()</code> — в файле есть хоть одно значение, зависящее от ноды, окружения или Hiera. <code>concat</code> (модуль puppetlabs-concat) — файл собирается из кусков, которые добавляют РАЗНЫЕ классы (например, общий <code>sshd_config</code> или список prometheus-таргетов).
+      </div>
+
+      <h2 id="iac-s20">Puppet — Roles &amp; Profiles: как заполнять роль и профиль</h2>
+      <p>Это <strong>отраслевой стандарт</strong> организации Puppet-кода. Без него любой проект через полгода превращается в кашу, где непонятно, кто и что накатывает на ноду. Три уровня, у каждого строго своя работа.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ МОДЕЛЬ</span>
+          <span>Три слоя и правила для каждого</span>
+        </div>
+        <pre>СЛОЙ 3 — МОДУЛИ (чужие, с forge: nginx, postgresql, prometheus)
+         Умеют «как поставить технологию вообще». Ничего не знают о твоей компании.
+         ⛔ НИКОГДА не правь их напрямую.
+
+СЛОЙ 2 — PROFILE (твой) — «как ЭТА технология настроена У НАС»
+         profile::web::nginx = наш nginx: наши логи, наш TLS, наши заголовки,
+         наш firewall-порт, наш мониторинг этого nginx.
+         ✅ здесь: include чужих модулей, ресурсы, логика, обращение к Hiera
+         ⛔ здесь НЕ хардкодят значения (пароли, домены) — они в Hiera
+
+СЛОЙ 1 — ROLE (твой) — «ЧТО ЭТО ЗА СЕРВЕР»
+         role::webserver = набор профилей, который делает машину веб-сервером.
+         ✅ здесь: ТОЛЬКО include профилей. Ни одного ресурса, ни одной переменной,
+            ни одного if. Роль читается как оглавление.
+         ⭐ ЗОЛОТОЕ ПРАВИЛО: у ноды РОВНО ОДНА роль.
+            Нужен «веб + база»? Это не две роли, это НОВАЯ роль role::allinone.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>site-modules/role/manifests/webserver.pp — как заполнять РОЛЬ</span>
+        </div>
+        <pre># Роль = оглавление сервера. Никакой логики, только состав.
+class role::webserver {
+
+  # то, что есть на КАЖДОЙ машине компании
+  include profile::base
+
+  # то, что делает эту машину именно веб-сервером
+  include profile::web::nginx
+  include profile::web::certbot
+  include profile::app::shopfront
+
+  # мониторинг именно веб-роли (nginx-exporter, blackbox-пробы)
+  include profile::monitoring::nginx
+
+}
+
+# Всё. Роль на 8 строк — это НОРМАЛЬНАЯ роль.
+# Если в роли появился package{}, if, или переменная — код положили не туда.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>site-modules/profile/manifests/base.pp — базовый профиль всех машин</span>
+        </div>
+        <pre># profile::base — то, что обязано быть на любой машине компании.
+# Тоже почти оглавление, но уровнем ниже.
+class profile::base {
+
+  include profile::base::users        # пользователи, sudo, ключи
+  include profile::base::ssh          # sshd_config по стандарту ИБ
+  include profile::base::motd         # приветственная страница
+  include profile::base::packages     # базовый набор утилит
+  include profile::base::ntp          # время
+  include profile::base::firewall     # firewalld + базовые правила
+  include profile::base::logging      # rsyslog/journald → централизованные логи
+  include profile::monitoring::node_exporter   # ⭐ мониторинг ВЕЗДЕ, без исключений
+
+  # ОС-специфика — здесь, а не в роли:
+  if $facts['os']['family'] == 'RedHat' {
+    include profile::base::selinux
+  }
+
+  # порядок: база встаёт ДО всего прикладного
+  Class['profile::base::packages'] -> Class['profile::base::firewall']
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>site-modules/profile/manifests/web/nginx.pp — как заполнять ПРОФИЛЬ</span>
+        </div>
+        <pre>class profile::web::nginx (
+  # ⭐ Параметры профиля = его публичный контракт с Hiera.
+  #    Значения придут автоматически по ключу 'profile::web::nginx::ИМЯ'
+  Stdlib::Port          $port           = 80,
+  Boolean               $ssl            = false,
+  Integer[1]            $worker_conns   = 1024,
+  Array[Stdlib::Host]   $upstreams      = [],
+  Hash[String, String]  $vhosts         = {},
+) {
+
+  # 1) технологию ставит ЧУЖОЙ модуль
+  package { 'nginx': ensure => installed }
+
+  # 2) наши настройки поверх
+  file { '/etc/nginx/nginx.conf':
+    ensure  => file,
+    owner   => 'root',
+    mode    => '0644',
+    content => epp('profile/nginx/nginx.conf.epp', {
+      'workers'      => $facts['processors']['count'],
+      'worker_conns' => $worker_conns,
+      'upstreams'    => $upstreams,
+    }),
+    require => Package['nginx'],
+    notify  => Service['nginx'],
+  }
+
+  # 3) виртуальные хосты из Hiera — сколько задали, столько и создастся
+  $vhosts.each |$name, $opts| {
+    profile::web::vhost { $name:
+      server_name => $opts['server_name'],
+      port        => pick($opts['port'], $port),
+    }
+  }
+
+  # 4) сервис
+  service { 'nginx':
+    ensure  => running,
+    enable  => true,
+    require => Package['nginx'],
+  }
+
+  # 5) наш стандарт: открыть порт и отдать метрики мониторингу
+  include profile::base::firewall
+  firewalld_port { "nginx-${port}":
+    ensure   => present,
+    zone     => 'public',
+    port     => $port,
+    protocol => 'tcp',
+  }
+}</pre>
+      </div>
+
+      <div class="note">
+        <strong>Как быстро понять, где ошибка в чужом коде:</strong> если в <code>role::*</code> есть хоть один <code>file{}</code> или <code>if</code> — код положили не туда. Если в <code>profile::*</code> есть строка с реальным паролем или доменом — данные положили не туда (их место в Hiera). Эти два признака ловят 80% беспорядка в Puppet-репозиториях.
+      </div>
+
+      <h2 id="iac-s21">Puppet — site.pp и классификация нод</h2>
+      <p><code>manifests/site.pp</code> — точка входа компиляции. Здесь решается единственный вопрос: <strong>какая нода какие классы получает</strong>. Есть три способа, от древнего к современному.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Способ 1: node-блоки (классика, всё ещё живёт на многих продах)</span>
+        </div>
+        <pre># manifests/site.pp
+
+# Настройки, общие для ВСЕХ нод (выполняются до node-блоков):
+Package { allow_virtual => true }          # ресурс-дефолт с большой буквы
+File    { owner => 'root', group => 'root' }
+
+# ⭐ node default — «все, кто не подошёл ни под один блок ниже»
+node default {
+  include profile::base
+}
+
+# Точное совпадение по certname:
+node 'web01.example.com' {
+  include role::webserver
+}
+
+# Несколько нод — одна роль:
+node 'db01.example.com', 'db02.example.com' {
+  include role::database
+}
+
+# Регулярка (⭐ так делают для парков одинаковых машин):
+node /^web\d+\.prod\.example\.com$/ {
+  include role::webserver
+}
+
+# ⚠️ ЛОВУШКИ node-блоков:
+#  - нода попадает РОВНО В ОДИН блок: совпал точный — регулярка уже не сработает
+#  - точное имя сильнее регулярки, регулярки проверяются по порядку
+#  - если нет ни одного совпадения и НЕТ node default → ошибка компиляции
+#  - на 500 нодах site.pp превращается в километровую портянку → см. способ 3</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Способ 2: классификация по trusted facts (роль зашита в сертификат)</span>
+        </div>
+        <pre>node default {
+  include profile::base
+
+  # pp_role приехал из csr_attributes.yaml при выпуске сертификата.
+  # Нода НЕ может это подделать — значение внутри подписанного сертификата.
+  $role = $trusted['extensions']['pp_role']
+
+  case $role {
+    'webserver': { include role::webserver }
+    'database':  { include role::database }
+    'monitor':   { include role::monitoring }
+    default:     { notify { "У ноды нет роли, только база": } }
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>⭐ Способ 3: классификация через Hiera — современный стандарт</span>
+        </div>
+        <pre># manifests/site.pp — ВЕСЬ файл целиком, и он больше не растёт никогда:
+node default {
+  include profile::base
+
+  # берём из Hiera список классов и включаем их
+  lookup('classes', Array[String], 'unique', []).include
+}
+
+#  lookup('classes', ...)   — ключ 'classes'
+#  Array[String]            — ожидаем массив строк (иначе падаем на компиляции)
+#  'unique'                 — ⭐ merge-стратегия: СКЛЕИТЬ списки со ВСЕХ уровней
+#                              иерархии и убрать дубликаты (а не взять первый)
+#  []                       — значение по умолчанию, если ключа нет нигде
+#  .include                 — включить всё, что нашли</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>...и тогда классификация живёт в данных, а не в коде</span>
+        </div>
+        <pre># data/common.yaml — глобально, на всех
+classes:
+  - profile::base
+
+# data/roles/webserver.yaml — всем нодам с ролью webserver
+classes:
+  - role::webserver
+
+# data/nodes/web07.example.com.yaml — ⭐ ТОЛЬКО этой ноде, в дополнение
+classes:
+  - profile::debug::tcpdump      # временно, для расследования инцидента
+
+# Итог для web07: profile::base + role::webserver + profile::debug::tcpdump
+# — потому что стратегия 'unique' СКЛЕИЛА списки со всех трёх уровней.</pre>
+      </div>
+
+      <h2 id="iac-s22">Puppet — Hiera: иерархия и автоматический lookup</h2>
+      <p><strong>Hiera</strong> — отдельное хранилище данных. Главная идея Puppet-архитектуры: <strong>код в <code>.pp</code>, данные в <code>.yaml</code></strong>. Код одинаков для всех; различия между нодами, ролями, ЦОДами и окружениями живут в yaml-файлах.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>hiera.yaml — иерархия поиска. Разбор каждой строки</span>
+        </div>
+        <pre>---
+version: 5                          # ⭐ формат 5 (v3 — легаси, синтаксис другой)
+
+defaults:
+  datadir: data                     # где искать файлы (относительно окружения)
+  data_hash: yaml_data              # чем читать: yaml_data / json_data / hocon_data
+
+hierarchy:                          # ⭐ ПОРЯДОК ВАЖЕН: сверху вниз, кто выше — тот главнее
+  - name: "Секреты ноды и общие"
+    lookup_key: eyaml_lookup_key    # этот уровень читает ЗАШИФРОВАННЫЕ значения
+    paths:
+      - "secrets/nodes/%{trusted.certname}.eyaml"
+      - "secrets/common.eyaml"
+    options:
+      pkcs7_private_key: /etc/puppetlabs/puppet/eyaml/private_key.pkcs7.pem
+      pkcs7_public_key:  /etc/puppetlabs/puppet/eyaml/public_key.pkcs7.pem
+
+  - name: "Конкретная нода"                       # ⭐ САМЫЙ ТОЧНЫЙ уровень
+    path: "nodes/%{trusted.certname}.yaml"        # nodes/web01.example.com.yaml
+
+  - name: "Роль в конкретном окружении"
+    path: "roles/%{trusted.extensions.pp_role}/%{server_facts.environment}.yaml"
+
+  - name: "Роль"
+    path: "roles/%{trusted.extensions.pp_role}.yaml"    # roles/webserver.yaml
+
+  - name: "Датацентр"
+    path: "dc/%{facts.datacenter}.yaml"
+
+  - name: "Семейство ОС"
+    path: "os/%{facts.os.family}.yaml"            # os/RedHat.yaml
+
+  - name: "Общее для всех"                        # ⭐ САМЫЙ ОБЩИЙ уровень
+    path: "common.yaml"
+
+# %{...} — подстановка факта прямо в ПУТЬ файла. Именно так одна и та же
+# иерархия обслуживает 5000 разных машин.
+# Файла нет → уровень просто пропускается, ошибки нет.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ГЛАВНОЕ</span>
+          <span>Автоматический параметр-lookup: как данные попадают в класс</span>
+        </div>
+        <pre># Есть класс:
+class profile::web::nginx (
+  Stdlib::Port $port = 80,
+) { ... }
+
+# Когда ты пишешь просто:
+include profile::web::nginx
+
+# Puppet САМ идёт в Hiera и ищет ключ, собранный по правилу:
+#        имя_класса :: имя_параметра
+#        profile::web::nginx::port
+
+# Порядок приоритета значения параметра:
+#   1. resource-like объявление class { '...': port => 8080 }   ← сильнее всего
+#   2. значение из Hiera по ключу profile::web::nginx::port
+#      (первый найденный уровень иерархии, сверху вниз)
+#   3. значение по умолчанию из определения класса ( = 80 )
+#   4. ничего нет и дефолта нет → ОШИБКА компиляции
+
+# Поэтому на проде почти нигде нет class{...}: есть include + yaml.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>data/common.yaml — как выглядят данные</span>
+        </div>
+        <pre>---
+# ключ — ВСЕГДА полное имя класса::параметр
+profile::web::nginx::port: 80
+profile::web::nginx::worker_conns: 2048
+
+profile::base::packages::list:
+  - vim
+  - htop
+  - tmux
+  - net-tools
+
+profile::base::users::accounts:
+  deploy:
+    comment: 'Деплой-робот'
+    groups: ['docker']
+    sudo:   false
+    keys:
+      - 'ssh-ed25519 AAAAC3Nza... ci@gitlab'
+  kirill:
+    comment: 'Кирилл, DevOps'
+    groups: ['wheel']
+    sudo:   true
+    keys:
+      - 'ssh-ed25519 AAAAC3Nza... kirill@laptop'
+
+# ⭐ lookup_options — как СКЛЕИВАТЬ этот ключ между уровнями иерархии
+lookup_options:
+  classes:
+    merge: unique                  # списки классов складываются со всех уровней
+  profile::base::packages::list:
+    merge: unique                  # пакеты дополняются, а не заменяются
+  profile::base::users::accounts:
+    merge:
+      strategy: deep               # хеши сливаются вглубь
+      knockout_prefix: '--'        # '--kirill' на уровне ноды = удалить эту ветку</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">СТРАТЕГИИ</span>
+          <span>merge — четыре поведения, которые надо знать</span>
+        </div>
+        <pre>first (по умолчанию)  взять значение с САМОГО ВЕРХНЕГО уровня, где нашлось.
+                      Остальные игнорируются. Так работают обычные параметры.
+
+unique                собрать значения со ВСЕХ уровней в один плоский массив,
+                      убрать дубликаты. Для списков: классы, пакеты, правила.
+
+hash                  слить хеши по верхнему уровню ключей
+                      (вложенное значение целиком берётся с верхнего уровня).
+
+deep                  слить хеши РЕКУРСИВНО, до самых глубоких ключей.
+                      Для сложных структур вроде users/accounts.
+
+# Явно, прямо в коде:
+$pkgs  = lookup('profile::base::packages::list', Array[String], 'unique', [])
+$users = lookup({'name' =&gt; 'users', 'merge' =&gt; {'strategy' =&gt; 'deep'}})</pre>
+      </div>
+
+      <h2 id="iac-s23">Puppet — правила для одной ноды и глобально</h2>
+      <p>Самый частый практический вопрос: «надо поменять параметр только на одной машине» / «надо накатить на все сразу». В Puppet это не разные механизмы, а разные <strong>уровни одной иерархии</strong>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ПРАКТИКА</span>
+          <span>Куда класть изменение — таблица решений</span>
+        </div>
+        <pre>ЗАДАЧА                                    КУДА ПИСАТЬ
+─────────────────────────────────────────────────────────────────────────
+На ВСЕ машины компании                    data/common.yaml
+                                          (+ класс в profile::base)
+
+На все машины с ролью webserver           data/roles/webserver.yaml
+
+На все машины на RHEL                     data/os/RedHat.yaml
+
+На все машины в ЦОД msk                   data/dc/msk.yaml
+
+На все машины окружения dev               ветка dev control-repo
+                                          (или data/env/dev.yaml)
+
+⭐ ТОЛЬКО на web07                         data/nodes/web07.example.com.yaml
+
+Добавить web07 лишний класс               в его же nodes/*.yaml, ключ classes:
+                                          (стратегия unique — добавится к общим)
+
+Убрать у web07 то, что даёт общий уровень  knockout_prefix ('--ключ')
+                                          либо параметр-выключатель:
+                                          profile::web::nginx::manage_ssl: false</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПРИМЕР</span>
+          <span>Один и тот же параметр на трёх уровнях — кто победит</span>
+        </div>
+        <pre># data/common.yaml                     ← самый общий (низ иерархии)
+profile::web::nginx::port: 80
+profile::base::packages::list: ['vim', 'htop']
+
+# data/roles/webserver.yaml            ← средний уровень
+profile::web::nginx::port: 8080
+profile::base::packages::list: ['nginx-utils']
+
+# data/nodes/web07.example.com.yaml    ← самый точный (верх иерархии)
+profile::web::nginx::port: 9090
+profile::base::packages::list: ['tcpdump']
+
+РЕЗУЛЬТАТ:
+  web07  → port = 9090            (first: победил самый верхний уровень)
+  web02  → port = 8080            (нет своего файла ноды → взяли уровень роли)
+  db01   → port = 80              (не webserver → взяли common)
+
+  packages (merge: unique) → на web07: vim, htop, nginx-utils, tcpdump
+                             ⭐ здесь НЕ перезапись, а СЛОЖЕНИЕ всех уровней,
+                                потому что для этого ключа задан merge: unique</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>⭐ Как проверить, откуда нода возьмёт значение (не гадая)</span>
+        </div>
+        <pre># Что получит конкретная нода по конкретному ключу:
+puppet lookup profile::web::nginx::port --node web07.example.com --environment production
+
+# ⭐⭐ САМАЯ ПОЛЕЗНАЯ КОМАНДА: покажет ВЕСЬ путь поиска —
+#     какие файлы проверялись, где нашлось, что перебило что:
+puppet lookup profile::web::nginx::port --node web07.example.com --explain
+
+# Вывод читается так:
+#   Merge strategy first
+#     Hierarchy entry "Конкретная нода"
+#       Path ".../data/nodes/web07.example.com.yaml"
+#         Original path: "nodes/%{trusted.certname}.yaml"
+#         Found key: "profile::web::nginx::port" value: 9090     ← ВОТ ОН
+#     Hierarchy entry "Роль"
+#       Path ".../data/roles/webserver.yaml"
+#         Found key: ... value: 8080                             ← перебито
+
+# Список классов ноды:
+puppet lookup classes --node web07.example.com --merge unique
+
+# Иерархия глазами конкретной ноды (какие пути подставятся):
+puppet lookup --node web07.example.com --explain any_key | grep 'Path '</pre>
+      </div>
+
+      <h2 id="iac-s24">Puppet — секреты: hiera-eyaml</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Пароли в git — но зашифрованные</span>
+        </div>
+        <pre># Установка и ключи (один раз, на puppetserver):
+/opt/puppetlabs/puppet/bin/gem install hiera-eyaml
+eyaml createkeys                       # keys/private_key.pkcs7.pem + public
+mkdir -p /etc/puppetlabs/puppet/eyaml
+mv keys/*.pem /etc/puppetlabs/puppet/eyaml/
+chown -R puppet:puppet /etc/puppetlabs/puppet/eyaml
+chmod 0500 /etc/puppetlabs/puppet/eyaml ; chmod 0400 /etc/puppetlabs/puppet/eyaml/*
+#   ⭐ приватный ключ НЕ в git. Он только на puppetserver.
+
+# Зашифровать значение:
+eyaml encrypt -l 'profile::app::shopfront::db_password' -s 'СуперПароль123'
+
+# Вставить в data/secrets/common.eyaml то, что оно напечатало:
+#   profile::app::shopfront::db_password: >
+#       ENC[PKCS7,MIIBiQYJKoZIhvcNAQcDoIIBejCCAXYCAQAxggEhMIIBHQIBADAFMAACAQEw...]
+
+# Посмотреть/поправить существующий файл (откроет расшифрованным в $EDITOR):
+eyaml edit data/secrets/common.eyaml
+
+# В манифесте НИЧЕГО не меняется — обычный параметр:
+class profile::app::shopfront (
+  Sensitive[String] $db_password,        # ⭐ Sensitive: не попадёт в логи и отчёты
+) { ... }</pre>
+      </div>
+
+      <div class="note">
+        <strong>Три уровня зрелости работы с секретами:</strong> (1) пароль прямо в манифесте — так делать нельзя никогда; (2) hiera-eyaml — секрет в git зашифрован, ключ только на сервере — рабочий отраслевой минимум; (3) внешний Vault (модуль <code>hiera_vault</code>) — Puppet ходит за секретом в HashiCorp Vault на каждой компиляции, в git секретов нет вообще. Тип <code>Sensitive[String]</code> нужен в любом случае: он не даёт паролю утечь в отчёты, логи и <code>--debug</code>.
+      </div>
+
+      <h2 id="iac-s25">Puppet — пример 1: пользователи, sudo и SSH-ключи</h2>
+      <p>Самая частая задача: «заведи Пете доступ на все веб-серверы, а Васю убери отовсюду». В Puppet это правка одного yaml-файла — дальше парк разъедется сам за 30 минут.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>site-modules/profile/manifests/base/users.pp</span>
+        </div>
+        <pre>class profile::base::users (
+  Hash[String, Hash]  $accounts = {},     # кого завести (данные из Hiera)
+  Array[String]       $revoked  = [],     # кого выпилить отовсюду
+  String              $sudo_group = 'wheel',
+) {
+
+  # ── 1. Заводим людей ────────────────────────────────────────────────
+  $accounts.each |$login, $opts| {
+
+    group { $login:
+      ensure => present,
+      gid    => $opts['gid'],             # undef = система выберет сама
+    }
+
+    user { $login:
+      ensure     => present,
+      uid        => $opts['uid'],
+      gid        => $login,               # личная группа
+      groups     => pick($opts['groups'], []),   # доп. группы: docker, wheel…
+      comment    => pick($opts['comment'], $login),
+      shell      => pick($opts['shell'], '/bin/bash'),
+      home       => "/home/${login}",
+      managehome => true,                 # ⭐ создать /home и скелет
+      purge_ssh_keys => true,             # ⭐⭐ ключи, добавленные РУКАМИ, будут снесены
+      require    => Group[$login],
+    }
+
+    # ── 2. SSH-ключи ──────────────────────────────────────────────────
+    pick($opts['keys'], []).each |$index, $keyline| {
+      # строка вида 'ssh-ed25519 AAAAC3Nza... kirill@laptop' → режем на части
+      $parts = split($keyline, ' ')
+      ssh_authorized_key { "${login}_${index}":
+        ensure => present,
+        user   => $login,
+        type   => $parts[0],
+        key    => $parts[1],
+        require => User[$login],
+      }
+    }
+
+    # ── 3. sudo — отдельным файлом, а не правкой /etc/sudoers ─────────
+    if pick($opts['sudo'], false) {
+      file { "/etc/sudoers.d/10-${login}":
+        ensure       => file,
+        owner        => 'root',
+        group        => 'root',
+        mode         => '0440',           # ⭐ иначе sudo ругается и НЕ работает
+        content      => "${login} ALL=(ALL) NOPASSWD: ALL\n",
+        validate_cmd => '/usr/sbin/visudo -cf %',   # ⭐⭐ проверка ДО подмены:
+        require      => User[$login],     #     кривой sudoers = потеря root-доступа
+      }
+    } else {
+      file { "/etc/sudoers.d/10-${login}": ensure => absent }
+    }
+  }
+
+  # ── 4. Уволенные — снести везде и сразу ─────────────────────────────
+  $revoked.each |$login| {
+    user { $login:
+      ensure => absent,
+      # домашний каталог оставляем: в нём могут быть рабочие данные
+    }
+    file { "/etc/sudoers.d/10-${login}": ensure => absent }
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Данные: глобально + добавка одной ноде</span>
+        </div>
+        <pre># ── data/common.yaml — есть на КАЖДОЙ машине ────────────────────────
+lookup_options:
+  profile::base::users::accounts:
+    merge:
+      strategy: deep                    # ⭐ уровни СКЛАДЫВАЮТСЯ, а не заменяют
+  profile::base::users::revoked:
+    merge: unique
+
+profile::base::users::accounts:
+  kirill:
+    comment: 'Кирилл — DevOps'
+    groups:  ['wheel']
+    sudo:    true
+    keys:
+      - 'ssh-ed25519 AAAAC3NzaC1lZDI1... kirill@laptop'
+  deploy:
+    comment: 'CI/CD робот'
+    shell:   '/bin/bash'
+    sudo:    false
+    keys:
+      - 'ssh-ed25519 AAAAC3NzaC1lZDI1... gitlab-runner'
+
+profile::base::users::revoked:
+  - vasya                               # уволился — снесётся со всего парка
+
+# ── data/roles/database.yaml — только на БД ─────────────────────────
+profile::base::users::accounts:
+  dba:
+    comment: 'Администратор БД'
+    groups:  ['postgres']
+    sudo:    false
+    keys:
+      - 'ssh-ed25519 AAAAC3NzaC1lZDI1... dba@office'
+
+# ── data/nodes/web07.example.com.yaml — ⭐ ТОЛЬКО на этой машине ────
+profile::base::users::accounts:
+  audit:                                # аудитор пришёл на неделю на одну ноду
+    comment: 'Временный аудит INC-4412'
+    sudo:    false
+    keys:
+      - 'ssh-rsa AAAAB3Nza... auditor@partner'
+
+# ИТОГ на web07: kirill + deploy + audit
+# ИТОГ на db01:  kirill + deploy + dba
+# Убрали строчку из yaml → следующий прогон удалит пользователя сам.</pre>
+      </div>
+
+      <h2 id="iac-s26">Puppet — пример 2: приветственная страница после авторизации</h2>
+      <p>Две разные «приветственные страницы», которые обычно имеют в виду: <strong>баннер в терминале при SSH-логине</strong> и <strong>веб-страница, которая открывается после ввода логина и пароля</strong>. Разбираем обе.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>А) Баннер в SSH: /etc/motd (после входа) и /etc/issue.net (до входа)</span>
+        </div>
+        <pre># site-modules/profile/manifests/base/motd.pp
+class profile::base::motd (
+  Array[String]    $owners  = [],
+  Optional[String] $ticket  = undef,     # идут работы — предупредить входящих
+  String           $wiki    = 'https://wiki.company.ru/servers',
+) {
+
+  # 1) MOTD — показывается ПОСЛЕ успешной авторизации
+  file { '/etc/motd':
+    ensure  => file,
+    owner   => 'root',
+    group   => 'root',
+    mode    => '0644',
+    content => epp('profile/motd.epp', {
+      'hostname' => $facts['networking']['fqdn'],
+      'ip'       => $facts['networking']['ip'],
+      'os'       => "${facts['os']['name']} ${facts['os']['release']['full']}",
+      'role'     => pick($trusted['extensions']['pp_role'], 'нет роли'),
+      'env'      => $server_facts['environment'],
+      'owners'   => $owners,
+      'ticket'   => $ticket,
+      'wiki'     => $wiki,
+    }),
+  }
+
+  # 2) На RHEL динамический motd отключён; на Debian/Ubuntu мешает update-motd.d —
+  #    выключаем, иначе наш файл затрут скрипты дистрибутива
+  if $facts['os']['family'] == 'Debian' {
+    file { '/etc/update-motd.d/10-help-text': ensure => absent }
+    file { '/etc/update-motd.d/50-motd-news': ensure => absent }
+  }
+
+  # 3) ISSUE.NET — юридический баннер ДО ввода пароля (требование ИБ)
+  file { '/etc/issue.net':
+    ensure  => file,
+    mode    => '0644',
+    content => "ВНИМАНИЕ: доступ только для авторизованных лиц.\nВсе действия протоколируются.\n",
+  }
+
+  # 4) Включаем его в sshd и перезапускаем сервис при изменении
+  file_line { 'sshd-banner':
+    path   => '/etc/ssh/sshd_config',
+    line   => 'Banner /etc/issue.net',
+    match  => '^#?Banner\s',
+    notify => Service['sshd'],
+  }
+
+  service { 'sshd':
+    ensure => running,
+    enable => true,
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EPP</span>
+          <span>templates/motd.epp — что увидит человек после ssh</span>
+        </div>
+        <pre>&lt;%- | String           $hostname,
+      String           $ip,
+      String           $os,
+      String           $role,
+      String           $env,
+      Array[String]    $owners,
+      Optional[String] $ticket,
+      String           $wiki,
+| -%&gt;
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  &lt;%= $hostname %&gt;
+  │  &lt;%= $ip %&gt;  ·  &lt;%= $os %&gt;
+  │  роль: &lt;%= $role %&gt;   окружение: &lt;%= $env %&gt;
+  └──────────────────────────────────────────────────────────────┘
+
+  ⚙️  Конфигурация под управлением Puppet.
+      Правки руками откатятся в течение 30 минут.
+      Менять — только через control-repo (PR + ревью).
+
+  👤 Ответственные:
+&lt;% $owners.each |$o| { -%&gt;
+      · &lt;%= $o %&gt;
+&lt;% } -%&gt;
+&lt;% if $ticket { -%&gt;
+
+  🚧 ИДУТ РАБОТЫ: &lt;%= $ticket %&gt; — ничего не трогай без согласования!
+&lt;% } -%&gt;
+
+  📖 Документация: &lt;%= $wiki %&gt;/&lt;%= $hostname %&gt;</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Данные: глобально всем, объявление о работах — одной ноде</span>
+        </div>
+        <pre># data/common.yaml
+profile::base::motd::owners:
+  - 'команда инфраструктуры — infra@company.ru'
+  - 'дежурный — @oncall в Telegram'
+
+# data/nodes/web07.example.com.yaml
+profile::base::motd::ticket: 'INC-4412 — миграция диска, до 12.08 18:00'
+#   ⭐ добавили одну строчку в yaml → на одной машине в баннере появилось
+#      предупреждение. Код при этом не тронут вообще.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Б) Веб: приветственная страница ПОСЛЕ basic-авторизации в nginx</span>
+        </div>
+        <pre># site-modules/profile/manifests/web/welcome.pp
+class profile::web::welcome (
+  String              $server_name = 'welcome.company.ru',
+  Hash[String, Sensitive[String]] $users = {},   # логин => пароль (из eyaml!)
+  String              $title = 'Внутренний портал',
+) {
+
+  include profile::web::nginx
+
+  # 1) Каталог страницы
+  file { '/var/www/welcome':
+    ensure => directory,
+    owner  => 'nginx',
+    mode   => '0755',
+  }
+
+  # 2) Сама приветственная страница — рендерим шаблоном
+  file { '/var/www/welcome/index.html':
+    ensure  => file,
+    owner   => 'nginx',
+    mode    => '0644',
+    content => epp('profile/web/welcome.html.epp', {
+      'title'    => $title,
+      'hostname' => $facts['networking']['fqdn'],
+      'env'      => $server_facts['environment'],
+    }),
+    require => File['/var/www/welcome'],
+  }
+
+  # 3) Файл паролей: логины из Hiera, пароли — зашифрованы в eyaml.
+  #    ⭐ htpasswd-строку генерим заранее (openssl passwd -apr1) и храним как секрет,
+  #       чтобы не гонять пароли в открытом виде через каталог.
+  $htpasswd_lines = $users.map |$login, $hash| { "${login}:${hash.unwrap}" }
+
+  file { '/etc/nginx/.htpasswd':
+    ensure    => file,
+    owner     => 'root',
+    group     => 'nginx',
+    mode      => '0640',                 # ⭐ читает только nginx
+    content   => Sensitive(join($htpasswd_lines, "\n") + "\n"),
+    show_diff => false,                  # ⭐ не печатать содержимое в отчёты
+    notify    => Service['nginx'],
+  }
+
+  # 4) vhost: авторизация → и только потом страница
+  file { '/etc/nginx/conf.d/welcome.conf':
+    ensure  => file,
+    mode    => '0644',
+    content => epp('profile/web/welcome.conf.epp', {
+      'server_name' => $server_name,
+      'root'        => '/var/www/welcome',
+    }),
+    notify  => Service['nginx'],
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EPP</span>
+          <span>templates/web/welcome.conf.epp — конфиг nginx с basic auth</span>
+        </div>
+        <pre>&lt;%- | String $server_name, String $root | -%&gt;
+server {
+    listen 80;
+    server_name &lt;%= $server_name %&gt;;
+    root &lt;%= $root %&gt;;
+
+    location / {
+        auth_basic           "&lt;%= $server_name %&gt; — вход для сотрудников";
+        auth_basic_user_file /etc/nginx/.htpasswd;   # ⭐ пока не ввёл логин/пароль —
+        index index.html;                            #    страницу не увидит
+    }
+
+    # health-check без пароля, иначе мониторинг будет получать 401
+    location = /healthz {
+        auth_basic off;
+        return 200 "ok\n";
+    }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Данные и секреты</span>
+        </div>
+        <pre># data/roles/webserver.yaml
+profile::web::welcome::server_name: 'welcome.company.ru'
+profile::web::welcome::title: 'Внутренний портал — PROD'
+
+# data/secrets/common.eyaml  (eyaml edit)
+profile::web::welcome::users:
+  kirill: ENC[PKCS7,MIIBiQYJKoZIhvcN...]     # apr1-хеш пароля, зашифрованный
+  audit:  ENC[PKCS7,MIIBiQYJKoZIhvcN...]
+
+# Хеш готовят так (один раз, руками):
+#   openssl passwd -apr1 'ПарольПользователя'
+#   eyaml encrypt -s '$apr1$xxxx$yyyyyy'</pre>
+      </div>
+
+      <h2 id="iac-s27">Puppet — пример 3: мониторинг и алертинг «как у всех»</h2>
+      <p>Боевой стандарт: <strong>node_exporter на каждой машине</strong> (без исключений), Prometheus сам узнаёт о новых нодах, Alertmanager шлёт в Telegram. Ключевая магия — <strong>exported resources</strong>: нода «объявляет» себя, мониторинг-сервер эти объявления «собирает».</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Шаг 1 — node_exporter на каждой ноде (входит в profile::base)</span>
+        </div>
+        <pre>class profile::monitoring::node_exporter (
+  String       $version    = '1.8.2',
+  Stdlib::Port $port       = 9100,
+  Array[String] $prom_servers = [],       # кому разрешить скрейпить
+) {
+
+  # 1) системный пользователь без логина
+  user { 'node_exporter':
+    ensure => present,
+    system => true,
+    shell  => '/sbin/nologin',
+    home   => '/var/lib/node_exporter',
+  }
+
+  # 2) бинарь: качаем и распаковываем (модуль puppet/archive)
+  archive { "/tmp/node_exporter-${version}.tar.gz":
+    ensure       => present,
+    source       => "https://github.com/prometheus/node_exporter/releases/download/v${version}/node_exporter-${version}.linux-amd64.tar.gz",
+    extract      => true,
+    extract_path => '/opt',
+    creates      => "/opt/node_exporter-${version}.linux-amd64/node_exporter",  # ⭐ идемпотентность
+    cleanup      => true,
+  }
+
+  file { '/usr/local/bin/node_exporter':
+    ensure  => link,
+    target  => "/opt/node_exporter-${version}.linux-amd64/node_exporter",
+    require => Archive["/tmp/node_exporter-${version}.tar.gz"],
+    notify  => Service['node_exporter'],   # ⭐ сменили версию → рестарт
+  }
+
+  # 3) systemd-юнит из шаблона
+  file { '/etc/systemd/system/node_exporter.service':
+    ensure  => file,
+    mode    => '0644',
+    content => epp('profile/monitoring/node_exporter.service.epp', { 'port' => $port }),
+    notify  => [Exec['systemd-daemon-reload'], Service['node_exporter']],
+  }
+
+  exec { 'systemd-daemon-reload':
+    command     => 'systemctl daemon-reload',
+    path        => ['/bin','/usr/bin'],
+    refreshonly => true,                   # ⭐ только по notify, не каждый прогон
+  }
+
+  service { 'node_exporter':
+    ensure  => running,
+    enable  => true,
+    require => File['/usr/local/bin/node_exporter'],
+  }
+
+  # 4) порт — только для prometheus-серверов
+  $prom_servers.each |$src| {
+    firewalld_rich_rule { "node_exporter from ${src}":
+      ensure => present,
+      zone   => 'public',
+      source => $src,
+      port   => { 'port' => $port, 'protocol' => 'tcp' },
+      action => 'accept',
+    }
+  }
+
+  # 5) ⭐⭐ ГЛАВНОЕ: нода ЭКСПОРТИРУЕТ себя как цель мониторинга.
+  #    Два @@ = «положи это в PuppetDB, применит кто-то другой»
+  @@concat::fragment { "prom_target_${facts['networking']['fqdn']}":
+    target  => '/etc/prometheus/file_sd/nodes.yml',
+    content => epp('profile/monitoring/target.yaml.epp', {
+      'fqdn' => $facts['networking']['fqdn'],
+      'port' => $port,
+      'role' => pick($trusted['extensions']['pp_role'], 'unknown'),
+      'env'  => $server_facts['environment'],
+      'dc'   => pick($facts['datacenter'], 'unknown'),
+    }),
+    tag     => 'prometheus_node_target',
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Шаг 2 — мониторинг-нода СОБИРАЕТ все объявления</span>
+        </div>
+        <pre>class profile::monitoring::prometheus (
+  Array[Hash]  $alert_rules = [],
+  String       $retention   = '30d',
+) {
+
+  package { 'prometheus': ensure => installed }
+
+  file { '/etc/prometheus/file_sd': ensure => directory, owner => 'prometheus' }
+
+  # Файл целей собирается из кусочков, приехавших от ВСЕХ нод
+  concat { '/etc/prometheus/file_sd/nodes.yml':
+    ensure         => present,
+    owner          => 'prometheus',
+    mode           => '0644',
+    ensure_newline => true,
+    notify         => Service['prometheus'],
+  }
+
+  # ⭐⭐ КОЛЛЕКТОР: забрать из PuppetDB все фрагменты с этим тегом.
+  #     Появилась новая нода в парке — её цель приедет сюда САМА,
+  #     без единой правки конфига Prometheus.
+  Concat::Fragment &lt;&lt;| tag == 'prometheus_node_target' |&gt;&gt;
+
+  # Правила алертов — из Hiera, рендерим одним файлом
+  file { '/etc/prometheus/rules/node.rules.yml':
+    ensure  => file,
+    owner   => 'prometheus',
+    mode    => '0644',
+    content => epp('profile/monitoring/rules.yaml.epp', { 'rules' => $alert_rules }),
+    notify  => Exec['promtool-check'],
+  }
+
+  # ⭐ не перезапускать Prometheus с битыми правилами
+  exec { 'promtool-check':
+    command     => 'promtool check rules /etc/prometheus/rules/node.rules.yml',
+    path        => ['/usr/bin','/usr/local/bin'],
+    refreshonly => true,
+    notify      => Service['prometheus'],
+  }
+
+  service { 'prometheus':
+    ensure => running,
+    enable => true,
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EPP + YAML</span>
+          <span>Шаг 3 — шаблоны цели и правил, данные алертов в Hiera</span>
+        </div>
+        <pre># templates/monitoring/target.yaml.epp
+&lt;%- | String $fqdn, Integer $port, String $role, String $env, String $dc | -%&gt;
+- targets: ['&lt;%= $fqdn %&gt;:&lt;%= $port %&gt;']
+  labels:
+    role: '&lt;%= $role %&gt;'
+    env:  '&lt;%= $env %&gt;'
+    dc:   '&lt;%= $dc %&gt;'
+
+# templates/monitoring/rules.yaml.epp
+&lt;%- | Array[Hash] $rules | -%&gt;
+groups:
+  - name: node
+    rules:
+&lt;% $rules.each |$r| { -%&gt;
+      - alert: &lt;%= $r['alert'] %&gt;
+        expr: &lt;%= $r['expr'] %&gt;
+        for: &lt;%= $r['for'] %&gt;
+        labels:
+          severity: &lt;%= $r['severity'] %&gt;
+        annotations:
+          summary: '&lt;%= $r['summary'] %&gt;'
+&lt;% } -%&gt;
+
+# ── data/roles/monitoring.yaml — сами правила живут В ДАННЫХ ──────────
+profile::monitoring::prometheus::alert_rules:
+  - alert: NodeDown
+    expr: 'up{job="node"} == 0'
+    for: '3m'
+    severity: critical
+    summary: 'Нода {{ $labels.instance }} не отвечает 3 минуты'
+  - alert: DiskWillFillIn4Hours
+    expr: 'predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs"}[1h], 4*3600) &lt; 0'
+    for: '10m'
+    severity: warning
+    summary: 'Диск на {{ $labels.instance }} закончится в ближайшие 4 часа'
+  - alert: HighMemory
+    expr: '(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) &gt; 0.9'
+    for: '10m'
+    severity: warning
+    summary: 'Память на {{ $labels.instance }} выше 90%'
+
+# ⭐ Добавить алерт всему парку = добавить 5 строк в yaml.
+#    Добавить алерт одной ноде = те же 5 строк в data/nodes/имя.yaml.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>Шаг 4 — Alertmanager с Telegram, токен из eyaml</span>
+        </div>
+        <pre>class profile::monitoring::alertmanager (
+  Sensitive[String] $telegram_token,      # ← ENC[PKCS7,...] в eyaml
+  Integer           $telegram_chat_id,
+) {
+  package { 'alertmanager': ensure => installed }
+
+  file { '/etc/alertmanager/alertmanager.yml':
+    ensure    => file,
+    owner     => 'alertmanager',
+    mode      => '0640',
+    show_diff => false,                   # ⭐ токен не должен попасть в отчёт
+    content   => Sensitive(epp('profile/monitoring/alertmanager.yml.epp', {
+      'token'   => $telegram_token.unwrap,
+      'chat_id' => $telegram_chat_id,
+    })),
+    notify    => Service['alertmanager'],
+  }
+
+  service { 'alertmanager': ensure => running, enable => true }
+}
+
+# templates/monitoring/alertmanager.yml.epp:
+#   route:
+#     receiver: telegram
+#     group_by: ['alertname','env']
+#     repeat_interval: 4h
+#   receivers:
+#     - name: telegram
+#       telegram_configs:
+#         - bot_token: '&lt;%= $token %&gt;'
+#           chat_id: &lt;%= $chat_id %&gt;
+#           parse_mode: HTML</pre>
+      </div>
+
+      <div class="note">
+        <strong>Что нужно, чтобы заработали exported resources:</strong> развёрнутый <strong>PuppetDB</strong> и <code>storeconfigs = true</code> на сервере. Механика: нода при своём прогоне кладёт «объявление» в PuppetDB, мониторинг-нода при своём прогоне их забирает коллектором <code>&lt;&lt;| |&gt;&gt;</code>. Следствие: новая цель появится в Prometheus только после того, как <em>оба</em> агента отработают — то есть в пределах 30–60 минут. Это нормальная цена за то, что список целей никто и никогда не правит руками.
+      </div>
+
+      <h2 id="iac-s28">Puppet — пример 4: разворачиваем любое приложение</h2>
+      <p>Универсальный скелет прикладного профиля. Под ним разворачивается что угодно: Python/FastAPI, Java-jar, Go-бинарь, Node. Меняются детали, каркас один и тот же — <strong>пользователь → каталоги → код → конфиг → systemd → сервис → прокси → firewall → мониторинг</strong>.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">PUPPET</span>
+          <span>site-modules/profile/manifests/app/shopfront.pp — целиком</span>
+        </div>
+        <pre>class profile::app::shopfront (
+  String            $version,                    # ⭐ обязателен: что катим
+  Stdlib::HTTPUrl   $repo_url,
+  String            $app_user   = 'shopfront',
+  Stdlib::Absolutepath $app_dir = '/opt/shopfront',
+  Stdlib::Port      $port       = 8000,
+  Integer[1]        $workers    = 4,
+  String            $domain     = 'shop.example.com',
+  Sensitive[String] $db_password,                # ← из eyaml
+  String            $db_host    = 'db01.example.com',
+  Hash[String,String] $extra_env = {},
+) {
+
+  # ── 1. Кто будет владеть приложением ──────────────────────────────
+  group { $app_user: ensure => present }
+
+  user { $app_user:
+    ensure  => present,
+    gid     => $app_user,
+    system  => true,
+    shell   => '/sbin/nologin',            # ⭐ сервисному юзеру логин не нужен
+    home    => $app_dir,
+    require => Group[$app_user],
+  }
+
+  # ── 2. Каталоги ───────────────────────────────────────────────────
+  file { [$app_dir, "${app_dir}/releases", "/var/log/shopfront"]:
+    ensure  => directory,
+    owner   => $app_user,
+    group   => $app_user,
+    mode    => '0750',
+    require => User[$app_user],
+  }
+
+  # ── 3. Код: качаем нужную версию (идемпотентно через creates) ─────
+  archive { "/tmp/shopfront-${version}.tar.gz":
+    ensure       => present,
+    source       => "${repo_url}/shopfront-${version}.tar.gz",
+    extract      => true,
+    extract_path => "${app_dir}/releases",
+    creates      => "${app_dir}/releases/${version}",   # ⭐ уже есть — не качаем
+    user         => $app_user,
+    cleanup      => true,
+    require      => File["${app_dir}/releases"],
+  }
+
+  # ── 4. Симлинк current → нужная версия. Смена = деплой/откат ──────
+  file { "${app_dir}/current":
+    ensure  => link,
+    target  => "${app_dir}/releases/${version}",
+    owner   => $app_user,
+    require => Archive["/tmp/shopfront-${version}.tar.gz"],
+    notify  => Service['shopfront'],       # ⭐ переключили версию → рестарт
+  }
+
+  # ── 5. Конфиг приложения (секреты внутри) ─────────────────────────
+  file { "${app_dir}/shared/app.env":
+    ensure    => file,
+    owner     => $app_user,
+    group     => $app_user,
+    mode      => '0640',                   # ⭐ читает только приложение
+    show_diff => false,                    # ⭐ пароль не светим в отчётах
+    content   => Sensitive(epp('profile/app/shopfront.env.epp', {
+      'db_host'  => $db_host,
+      'db_pass'  => $db_password.unwrap,
+      'port'     => $port,
+      'workers'  => $workers,
+      'extra'    => $extra_env,
+    })),
+    notify    => Service['shopfront'],
+  }
+
+  # ── 6. systemd-юнит ───────────────────────────────────────────────
+  file { '/etc/systemd/system/shopfront.service':
+    ensure  => file,
+    mode    => '0644',
+    content => epp('profile/app/shopfront.service.epp', {
+      'user'    => $app_user,
+      'app_dir' => $app_dir,
+      'port'    => $port,
+      'workers' => $workers,
+    }),
+    notify  => [Exec['shopfront-daemon-reload'], Service['shopfront']],
+  }
+
+  exec { 'shopfront-daemon-reload':
+    command     => 'systemctl daemon-reload',
+    path        => ['/bin','/usr/bin'],
+    refreshonly => true,
+  }
+
+  # ── 7. Сервис ─────────────────────────────────────────────────────
+  service { 'shopfront':
+    ensure    => running,
+    enable    => true,
+    subscribe => File["${app_dir}/current"],   # то же, что notify, только с другой стороны
+  }
+
+  # ── 8. Прокси: наружу торчит nginx, а не приложение ───────────────
+  include profile::web::nginx
+  profile::web::vhost { 'shopfront':
+    server_name => $domain,
+    port        => 80,
+    proxy_pass  => "http://127.0.0.1:${port}",
+  }
+
+  # ── 9. Firewall: 80 — всем, 8000 — только локально ────────────────
+  firewalld_port { 'shopfront-http':
+    ensure => present, zone => 'public', port => 80, protocol => 'tcp',
+  }
+
+  # ── 10. SELinux на RHEL/РЕД ОС: без этого nginx получит 502 ───────
+  if $facts['os']['selinux']['enabled'] {
+    selboolean { 'httpd_can_network_connect':
+      value      => 'on',
+      persistent => true,
+    }
+  }
+
+  # ── 11. Мониторинг именно этого приложения ────────────────────────
+  @@concat::fragment { "prom_target_app_${facts['networking']['fqdn']}":
+    target  => '/etc/prometheus/file_sd/apps.yml',
+    content => "- targets: ['${facts['networking']['fqdn']}:${port}']\n    labels: {app: 'shopfront'}\n",
+    tag     => 'prometheus_app_target',
+  }
+
+  # ── 12. Логи в ротацию ────────────────────────────────────────────
+  logrotate::rule { 'shopfront':
+    path       => '/var/log/shopfront/*.log',
+    rotate     => 14,
+    rotate_every => 'day',
+    compress   => true,
+    su_owner   => $app_user,
+  }
+}</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">EPP</span>
+          <span>templates/app/shopfront.service.epp</span>
+        </div>
+        <pre>&lt;%- | String $user, String $app_dir, Integer $port, Integer $workers | -%&gt;
+[Unit]
+Description=Shopfront API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=&lt;%= $user %&gt;
+WorkingDirectory=&lt;%= $app_dir %&gt;/current
+EnvironmentFile=&lt;%= $app_dir %&gt;/shared/app.env
+ExecStart=&lt;%= $app_dir %&gt;/current/venv/bin/gunicorn app.main:app \
+    --workers &lt;%= $workers %&gt; --bind 127.0.0.1:&lt;%= $port %&gt; \
+    --worker-class uvicorn.workers.UvicornWorker
+Restart=always
+RestartSec=5
+# ⭐ базовая изоляция — бесплатно и сильно снижает радиус поражения
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/shopfront
+
+[Install]
+WantedBy=multi-user.target</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Данные: версия отличается по окружениям, пароль — по нодам</span>
+        </div>
+        <pre># data/roles/webserver.yaml — общее для всех веб-серверов прода
+profile::app::shopfront::version: '2.14.3'
+profile::app::shopfront::repo_url: 'https://nexus.company.ru/releases'
+profile::app::shopfront::domain: 'shop.company.ru'
+profile::app::shopfront::workers: 8
+profile::app::shopfront::db_host: 'pg-prod.company.ru'
+
+# data/nodes/web07.example.com.yaml — ⭐ КАНАРЕЙКА: одна нода на новой версии
+profile::app::shopfront::version: '2.15.0-rc1'
+profile::app::shopfront::workers: 2
+
+# data/secrets/common.eyaml
+profile::app::shopfront::db_password: ENC[PKCS7,MIIBiQYJKoZIhvcNAQcDoIIB...]
+
+# ⭐ Выкатка релиза = ОДНА строка в yaml + merge в production.
+#    Откат = git revert. Канарейка = отдельный файл ноды. Всё.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Как это выглядит в жизни: раскатка релиза 2.15.0</span>
+        </div>
+        <pre># 1. Канарейка: правим только data/nodes/web07.example.com.yaml
+git checkout -b release/2.15.0 && vim data/nodes/web07.example.com.yaml
+git commit -am 'shopfront 2.15.0-rc1 на канарейку' && git push
+
+# 2. r10k выкатил ветку как окружение release_2_15_0. Проверяем БЕЗ изменений:
+ssh web07 'puppet agent -t --environment release_2_15_0 --noop'
+#    смотрим дифф: скачается архив, переключится симлинк, рестартанёт сервис
+
+# 3. Применяем на канарейке по-настоящему:
+ssh web07 'puppet agent -t --environment release_2_15_0'
+curl -sf https://shop.company.ru/healthz && echo OK
+#    смотрим метрики и логи полчаса
+
+# 4. Всё хорошо → правим data/roles/webserver.yaml (version: 2.15.0), merge в production
+# 5. Остальные 40 нод подхватят версию сами в течение 30 минут.
+#    Хочешь быстрее и по очереди — здесь удобно позвать Ansible:
+#      ansible webservers -m command -a '/opt/puppetlabs/bin/puppet agent -t' -f 5
+#      (-f 5 = по пять машин за раз, а не все сразу)</pre>
+      </div>
+
+      <h2 id="iac-s29">Puppet — как разобраться в чужом проде</h2>
+      <p>Тебя пустили на незнакомый сервер. Задача: понять, <strong>кто им управляет, что именно накатывается и откуда берутся значения</strong>. Порядок действий — сверху вниз, без гадания.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ПРОЦЕДУРА</span>
+          <span>Разведка на ноде — 8 шагов</span>
+        </div>
+        <pre># 0) Puppet тут вообще есть и живой?
+rpm -q puppet-agent || dpkg -l | grep puppet-agent
+systemctl status puppet
+export PATH=$PATH:/opt/puppetlabs/bin        # ⭐ бинарей в PATH обычно нет
+
+# 1) КТО МНОЙ УПРАВЛЯЕТ и как часто
+puppet config print server certname environment runinterval noop
+#   server      → адрес puppetserver
+#   certname    → под каким именем меня знают (ключ ко ВСЕЙ иерархии Hiera!)
+#   environment → какую ветку кода я получаю
+#   noop=true   → ⚠️ нода в холостом режиме: Puppet смотрит, но НЕ применяет
+
+# 2) КОГДА он последний раз отработал и что сделал
+cat /opt/puppetlabs/puppet/cache/state/last_run_summary.yaml
+#   changes.total  — сколько ресурсов поменял
+#   events.failure — сколько упало       ⭐ не ноль → тут проблема
+#   time.last_run  — когда (unixtime); если давно — агент мёртв или отключён
+
+puppet agent --disable                      # (посмотреть причину отключения)
+cat /opt/puppetlabs/puppet/cache/state/agent_disabled.lock
+
+# 3) ЧТО ИМЕННО он мне накатывает — полный список ресурсов из последнего каталога
+jq -r '.resources[] | "\(.type)[\(.title)]"' \
+   /opt/puppetlabs/puppet/cache/client_data/catalog/$(puppet config print certname).json | sort | head -50
+#   ⭐ самый честный ответ на вопрос «что здесь под управлением»
+
+# 4) КАКИЕ КЛАССЫ на мне висят
+jq -r '.resources[] | select(.type=="Class") | .title' \
+   /opt/puppetlabs/puppet/cache/client_data/catalog/*.json | sort
+#   увидишь Role::Webserver, Profile::Base, Profile::Web::Nginx… — это оглавление ноды
+
+# 5) ПРОГОН ВХОЛОСТУЮ — что он хочет поменять прямо сейчас
+puppet agent -t --noop
+#   строки "would have been changed" = дрейф: кто-то правил руками
+puppet agent -t --noop --debug --evaltrace 2>&1 | tee /tmp/puppet.log
+
+# 6) КТО Я С ТОЧКИ ЗРЕНИЯ ФАКТОВ (по ним строится вся иерархия Hiera)
+puppet facts show | jq '{fqdn: .networking.fqdn, os: .os.family, role: .trusted}'
+facter -p os.family networking.fqdn          # facter 3; в facter 4: puppet facts show
+
+# 7) ТЕКУЩЕЕ состояние объекта в синтаксисе Puppet (удобно для написания манифеста)
+puppet resource user deploy
+puppet resource service nginx
+puppet resource package nginx
+
+# 8) ЛОГИ
+journalctl -u puppet --since '-2h'           # что делал агент
+less /opt/puppetlabs/puppet/cache/state/last_run_report.yaml   # подробный отчёт</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">⭐ ПРОЦЕДУРА</span>
+          <span>Разведка в коде: «почему на ноде именно так»</span>
+        </div>
+        <pre># 1) Найти control-repo (на сервере) и понять точку входа
+cd /etc/puppetlabs/code/environments/production
+cat .r10k-deploy.json          # какой коммит и ветка тут развёрнуты
+cat manifests/site.pp          # ⭐ как ноды получают классы
+
+# 2) Какие классы получит КОНКРЕТНАЯ нода (не заходя на неё)
+puppet lookup classes --node web07.example.com --merge unique --environment production
+
+# 3) Идём по цепочке: роль → профили → ресурсы
+grep -rn 'class role::webserver' site-modules/role/manifests/
+cat site-modules/role/manifests/webserver.pp        # список профилей
+cat site-modules/profile/manifests/web/nginx.pp     # что реально делает профиль
+
+# 4) ⭐⭐ Откуда взялось КОНКРЕТНОЕ значение — самый частый вопрос:
+puppet lookup profile::web::nginx::port --node web07.example.com --explain
+#   покажет ВСЕ проверенные файлы иерархии, найденное значение и что чем перебито
+
+# 5) Кто ещё трогает этот файл/пакет (ищем дубли и «сюрпризы»)
+grep -rn "'/etc/nginx/nginx.conf'" site-modules/ modules/
+grep -rn 'shopfront' data/
+
+# 6) Скомпилировать каталог для ноды прямо на сервере, ничего не применяя:
+puppet catalog compile web07.example.com --environment production &gt; /tmp/cat.json
+jq -r '.resources[] | "\(.type)[\(.title)]"' /tmp/cat.json | sort
+
+# 7) Если развёрнут PuppetDB — вопросы ко всему парку сразу:
+puppet query 'nodes[certname] { facts { name = "os.family" and value = "RedHat" } }'
+puppet query 'resources[certname] { type = "Class" and title = "Role::Webserver" }'
+#   «на каких машинах стоит эта роль», «у кого какая версия пакета», «кто давно не отчитывался»</pre>
+      </div>
+
+      <div class="note">
+        <strong>Порядок чтения любого Puppet-прода одной строкой:</strong> <code>site.pp</code> → какая <strong>роль</strong> у ноды → какие <strong>профили</strong> в роли → что делает <strong>профиль</strong> → откуда <strong>данные</strong> (<code>puppet lookup --explain</code>). Пять шагов, и ты знаешь про сервер больше, чем половина команды.
+      </div>
+
+      <h2 id="iac-s30">Puppet — отладка и типовые ошибки</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Аптечка на каждый день</span>
+        </div>
+        <pre>puppet agent -t                     # ⭐ прогон сейчас (-t = --test: verbose + no daemon)
+puppet agent -t --noop              # ⭐⭐ показать, но НЕ делать. Правило: сначала так
+puppet agent -t --debug             # очень подробно (и медленно)
+puppet agent -t --evaltrace         # сколько времени занял каждый ресурс
+puppet agent -t --tags nginx        # применить ТОЛЬКО ресурсы с этим тегом
+puppet agent -t --environment dev   # разово взять код из другой ветки
+
+puppet agent --disable 'работы по INC-4412'   # ⭐ отключить перед ручными правками
+puppet agent --enable                          # не забыть включить!
+
+puppet parser validate manifests/site.pp       # синтаксис .pp
+puppet epp validate templates/motd.epp         # синтаксис шаблона
+puppet-lint --relative site-modules/           # стиль (в CI обязателен)
+puppet epp render templates/motd.epp --values '{hostname=>"x"}'   # отрендерить локально
+
+puppet apply -e 'notify { "привет": }'         # ⭐ запуск БЕЗ сервера (masterless)
+puppet apply --modulepath=site-modules manifests/site.pp --noop
+
+# Коды возврата (важно для CI и скриптов!):
+#   0 — всё хорошо, изменений не было
+#   2 — ⭐ изменения БЫЛИ (это НЕ ошибка!)
+#   4 — были сбои
+#   6 — были и изменения, и сбои
+# Поэтому в CI: puppet agent -t --detailed-exitcodes || [ $? -eq 2 ]</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Duplicate declaration: File[/etc/foo] is already declared</div>
+        <pre>Error: Evaluation Error: Resource type File[/etc/motd] is already declared
+in file .../profile/manifests/base/motd.pp:12; cannot redeclare</pre>
+        <p>Один и тот же ресурс объявлен в двух местах. В Puppet ресурс <strong>уникален по паре тип+title</strong> во всём каталоге — в отличие от Ansible, где две задачи спокойно правят один файл.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Что делать</div>
+        <pre># 1) Найти оба объявления:
+grep -rn "'/etc/motd'" site-modules/ modules/
+
+# 2) Решения по ситуации:
+#    - оставить владельцем ОДИН профиль (правильно в 90% случаев)
+#    - собирать файл из кусков разными классами → concat + concat::fragment
+#    - если ресурс может объявляться из разных мест → ensure_resource():
+ensure_resource('package', 'curl', { 'ensure' =&gt; 'installed' })
+#    - несколько экземпляров одного и того же → defined type вместо класса</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Found 1 dependency cycle</div>
+        <pre>Error: Found 1 dependency cycle:
+(File[/etc/nginx/nginx.conf] =&gt; Service[nginx] =&gt; File[/etc/nginx/nginx.conf])</pre>
+        <p>Кольцевая зависимость: A ждёт B, B ждёт A. Обычно из-за смеси <code>require</code> и <code>notify</code>, направленных навстречу друг другу.</p>
+      </div>
+      <div class="solution-block">
+        <div class="title">Что делать</div>
+        <pre>puppet agent -t --graph          # положит .dot в /opt/puppetlabs/puppet/cache/state/graphs/
+dot -Tpng cycles.dot -o /tmp/cycle.png    # посмотреть глазами
+# Лечение: оставить ОДНО направление — пакет → файл → сервис (и только notify вперёд).</pre>
+      </div>
+
+      <div class="error-block">
+        <div class="title">Другие частые ошибки — коротко</div>
+        <pre>"Could not find data item X in any Hiera data file"
+   → параметр без дефолта и без значения в Hiera.
+     Проверить: puppet lookup X --node NODE --explain (увидишь все проверенные пути)
+
+"Error: Could not retrieve catalog; skipping run"
+   → сервер не отдал каталог. Смотреть /var/log/puppetlabs/puppetserver/puppetserver.log
+
+"Server hostname 'puppet' did not match server certificate"
+   → у сервера нет нужного dns_alt_names. Перевыпустить сертификат сервера.
+
+"Exiting; no certificate found and waitforcert is disabled"
+   → CSR не подписан. На сервере: puppetserver ca sign --certname NODE
+
+"Class[...]: expects a value for parameter 'x'"
+   → обязательный параметр не задан ни в Hiera, ни в коде.
+
+Агент «ничего не делает», ошибок нет
+   → либо noop=true в puppet.conf, либо агент disabled (agent_disabled.lock),
+     либо нода вообще не попала ни в один node-блок / список classes.
+
+Изменения в git есть, на ноде нет
+   → r10k не выкатил ветку: r10k deploy environment production -p
+     и проверить .r10k-deploy.json</pre>
+      </div>
+
+      <h2 id="iac-s31">Puppet — cheatsheet и best practices</h2>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПРАВИЛА</span>
+          <span>10 правил, за которые говорят «человек работал с Puppet»</span>
+        </div>
+        <pre>1.  Roles &amp; Profiles обязательны. Роль — только include. У ноды одна роль.
+2.  Код в .pp, данные в Hiera. Ни одного пароля/домена/IP в манифестах.
+3.  include, а не class {}. Параметры приходят автолукапом из Hiera.
+4.  Типы у всех параметров (String, Integer, Enum, Stdlib::Port) — бесплатная валидация.
+5.  Секреты — eyaml + Sensitive[String] + show_diff =&gt; false.
+6.  Ничего не править руками в /etc/puppetlabs/code — только git → r10k.
+7.  Сначала --noop, потом канарейка, потом парк. Всегда в таком порядке.
+8.  Версии внешних модулей в Puppetfile пиньтся жёстко. ':latest' = инцидент.
+9.  В CI: puppet parser validate + puppet-lint + rspec-puppet на каждый PR.
+10. Мониторить сам Puppet: last_run_summary.yaml (failures &gt; 0, старый time.last_run)
+    — «агент молча умер» обнаруживается только так.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">CHEATSHEET</span>
+          <span>Всё самое нужное на одном экране</span>
+        </div>
+        <pre># ── ПРОГОН ────────────────────────────────────────────────────────
+puppet agent -t                          прогон сейчас
+puppet agent -t --noop                   показать, не делая
+puppet agent -t --environment dev        из другой ветки
+puppet agent --disable 'причина' / --enable
+
+# ── ПОСМОТРЕТЬ ────────────────────────────────────────────────────
+puppet config print server certname environment
+puppet facts show                        все факты ноды
+puppet resource user deploy              текущее состояние в DSL
+cat /opt/puppetlabs/puppet/cache/state/last_run_summary.yaml
+
+# ── HIERA (⭐ главное) ─────────────────────────────────────────────
+puppet lookup КЛЮЧ --node НОДА --explain          откуда значение
+puppet lookup classes --node НОДА --merge unique  какие классы у ноды
+
+# ── СЕРВЕР ────────────────────────────────────────────────────────
+puppetserver ca list --all               сертификаты
+puppetserver ca sign --certname НОДА     подписать
+puppetserver ca clean --certname НОДА    отозвать
+r10k deploy environment production -p    выкатить код из git
+puppet catalog compile НОДА              скомпилировать каталог вручную
+tail -f /var/log/puppetlabs/puppetserver/puppetserver.log
+
+# ── ПРОВЕРКА КОДА ─────────────────────────────────────────────────
+puppet parser validate файл.pp / puppet epp validate файл.epp
+puppet-lint --relative site-modules/
+puppet apply -e 'notify { "test": }'     без сервера
+
+# ── ГДЕ ЧТО ЛЕЖИТ ─────────────────────────────────────────────────
+/etc/puppetlabs/puppet/puppet.conf                 конфиг
+/etc/puppetlabs/code/environments/production/      весь код
+  manifests/site.pp · site-modules/ · data/ · hiera.yaml · Puppetfile
+/opt/puppetlabs/bin/                               бинарники
+/opt/puppetlabs/puppet/cache/state/                отчёты и состояние
+/var/log/puppetlabs/puppetserver/                  логи сервера
+journalctl -u puppet                               логи агента</pre>
+      </div>
+
+      <div class="note">
+        <strong>Итог по разделу:</strong> Puppet — это <em>непрерывное</em> удержание состояния парка машин. Агент каждые 30 минут забирает с сервера каталог, скомпилированный лично под него из <strong>кода</strong> (Roles &amp; Profiles) и <strong>данных</strong> (Hiera), и приводит машину в соответствие. Правило одной ноды и правило «на всех» — это просто разные уровни иерархии Hiera: <code>data/nodes/имя.yaml</code> против <code>data/common.yaml</code>. Развернуть что угодно — значит написать профиль по скелету «пользователь → каталоги → код → конфиг из шаблона → systemd → сервис → прокси → firewall → мониторинг», а различия между машинами вынести в yaml. Разобраться в чужом проде — пять шагов: <code>site.pp</code> → роль → профили → ресурсы → <code>puppet lookup --explain</code>.
+      </div>
+
+
+
+
+
+
     </section>
 
   </div>

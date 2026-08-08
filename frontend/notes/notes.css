@@ -77,7 +77,7 @@
       overflow: hidden;
       transition: max-height 0.25s ease;
     }
-    .nav-group.open .nav-sub { max-height: 1500px; }
+    .nav-group.open .nav-sub { max-height: 4000px; }
     .nav-sub a {
       display: block;
       padding: 0.35rem 0.7rem 0.35rem 1.4rem;

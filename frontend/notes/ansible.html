@@ -177,7 +177,260 @@ ansible all -m ping -vvv -i hosts     # подробный вывод (-vvv)
         <p>Причина: задача уже в нужном состоянии (идемпотентность). Это нормально — Ansible не меняет то что уже правильно.</p>
       </div>
 
-      <h2 id="ansible-s5">Puppet — тот же конфиг-менеджмент, но с агентами</h2>
+      <h2 id="ansible-s5">Установка агента на сервер — правильно</h2>
+      <p>Задача, которая на проде встречается чаще всех остальных: раскатать на весь парк агента — мониторинга (node_exporter, zabbix-agent2), сбора логов (promtail, filebeat), конфиг-менеджмента (puppet-agent), бэкапа. Выглядит как «скачай и запусти», но именно здесь ломают идемпотентность и получают парк из машин-снежинок.</p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">АНТИПАТТЕРНЫ</span>
+          <span>Как НЕ надо — и что именно тут ломается</span>
+        </div>
+        <pre>⛔ - name: Поставить агента
+     shell: curl -sL https://example.com/install.sh | bash
+   Что не так:
+     - НЕ идемпотентно: выполняется КАЖДЫЙ прогон, всегда changed
+     - неизвестно, что скрипт сделал: версия, пути, юнит — сюрприз
+     - нечего откатывать и нечем проверить
+     - сеть недоступна → падение всего playbook
+
+⛔ - name: Скачать бинарь
+     get_url: { url: "...", dest: /usr/local/bin/agent }
+     # без checksum — приедет что угодно, включая обрезанный файл
+
+⛔ - name: Запустить
+     shell: nohup /usr/local/bin/agent &amp;
+   # переживёт ровно до первого ребута. Сервисом должен управлять systemd.
+
+⛔ Установка "latest" без фиксации версии
+   # завтра на 300 машинах разные версии → «у нас метрика пропала, но не у всех»
+
+⛔ Забыли enabled: true
+   # сервер перезагрузили — агент не поднялся. Классика.</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">ПРИНЦИПЫ</span>
+          <span>7 правил правильной установки агента</span>
+        </div>
+        <pre>1. ВЕРСИЯ ФИКСИРОВАНА переменной роли. Обновление = смена переменной в git.
+2. Источник — репозиторий вендора (dnf/apt) ИЛИ бинарь с ПРОВЕРКОЙ checksum.
+3. Отдельный системный пользователь, shell=/sbin/nologin, без домашки и sudo.
+4. Управляет systemd: unit из шаблона, daemon-reload через handler.
+5. Конфиг — из template, с notify на restart. Правка конфига = рестарт, и только тогда.
+6. Порт открыт ТОЛЬКО источникам, которым он нужен (не 0.0.0.0 всему миру).
+7. В конце — ПРОВЕРКА: сервис активен и метрика реально отдаётся.
+   Установка без проверки = «вроде поставили».</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>Способ 1 — пакет из репозитория вендора (если он есть — берём его)</span>
+        </div>
+        <pre>- name: GPG-ключ репозитория Zabbix
+  ansible.builtin.rpm_key:
+    key: https://repo.zabbix.com/RPM-GPG-KEY-ZABBIX-A14FE591
+    state: present
+
+- name: Репозиторий Zabbix
+  ansible.builtin.dnf:
+    name: https://repo.zabbix.com/zabbix/7.0/rhel/9/x86_64/zabbix-release-7.0-2.el9.noarch.rpm
+    state: present
+    disable_gpg_check: false
+
+- name: Агент нужной версии (⭐ версия зафиксирована!)
+  ansible.builtin.dnf:
+    name: "zabbix-agent2-{{ zabbix_agent_version }}"
+    state: present
+  notify: restart zabbix-agent2
+
+- name: Конфиг из шаблона
+  ansible.builtin.template:
+    src: zabbix_agent2.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.conf
+    owner: root
+    group: zabbix
+    mode: '0640'
+  notify: restart zabbix-agent2
+
+- name: Сервис запущен и в автозагрузке
+  ansible.builtin.service:
+    name: zabbix-agent2
+    state: started
+    enabled: true</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">TREE</span>
+          <span>Способ 2 — бинарь без пакета. Полная роль node_exporter</span>
+        </div>
+        <pre>roles/node_exporter/
+├── defaults/main.yml                 переменные (версия, порт, кто скрейпит)
+├── tasks/main.yml                    установка
+├── templates/node_exporter.service.j2 systemd-юнит
+└── handlers/main.yml                 daemon-reload + restart</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>defaults/main.yml — всё настраиваемое здесь</span>
+        </div>
+        <pre>---
+node_exporter_version: "1.8.2"
+node_exporter_port: 9100
+node_exporter_user: node_exporter
+node_exporter_install_dir: /opt/node_exporter
+# ⭐ checksum берётся с страницы релиза (sha256sums.txt), а не выдумывается
+node_exporter_checksum: "sha256:6809dd0b3ec45fb6e59d0a4b0f2e0f0c69b3a3a1e6e3a9d2b1f0a7c5d4e3f2a1"
+node_exporter_allowed_sources:          # кому разрешаем скрейп
+  - "10.0.0.5"                          # prometheus-01
+  - "10.0.0.6"</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">YAML</span>
+          <span>tasks/main.yml — разбор по шагам</span>
+        </div>
+        <pre>---
+- name: Системный пользователь для агента
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    system: true                        # ⭐ UID из системного диапазона
+    shell: /sbin/nologin                # ⭐ под ним нельзя залогиниться
+    createhome: false
+
+- name: Каталог установки
+  ansible.builtin.file:
+    path: "{{ node_exporter_install_dir }}"
+    state: directory
+    owner: root
+    mode: '0755'
+
+- name: Скачать и распаковать релиз
+  ansible.builtin.unarchive:
+    src: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "{{ node_exporter_install_dir }}"
+    remote_src: true                    # качает сам сервер, а не control node
+    checksum: "{{ node_exporter_checksum }}"   # ⭐ битый/подменённый файл не приедет
+    creates: "{{ node_exporter_install_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    # ⭐ creates = идемпотентность: файл на месте → задача пропускается,
+    #    а не качает 20 МБ каждые полчаса
+
+- name: Симлинк на текущую версию
+  ansible.builtin.file:
+    src: "{{ node_exporter_install_dir }}/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    dest: /usr/local/bin/node_exporter
+    state: link
+  notify: restart node_exporter         # ⭐ сменили версию → рестарт
+
+- name: systemd-юнит
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    mode: '0644'
+  notify:
+    - reload systemd                    # ⭐ порядок важен: сначала daemon-reload,
+    - restart node_exporter             #    потом рестарт
+
+- name: Сервис запущен и в автозагрузке
+  ansible.builtin.service:
+    name: node_exporter
+    state: started
+    enabled: true                       # ⭐ переживёт ребут
+
+- name: Открыть порт только для Prometheus
+  ansible.posix.firewalld:
+    rich_rule: "rule family=ipv4 source address={{ item }} port port={{ node_exporter_port }} protocol=tcp accept"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ node_exporter_allowed_sources }}"
+
+# ── ПРИЁМКА: без неё установка не считается сделанной ────────────────
+- name: Порт слушается
+  ansible.builtin.wait_for:
+    port: "{{ node_exporter_port }}"
+    host: 127.0.0.1
+    timeout: 15
+
+- name: Метрики реально отдаются
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ node_exporter_port }}/metrics"
+    return_content: true
+  register: metrics
+  failed_when: "'node_cpu_seconds_total' not in metrics.content"
+  changed_when: false                   # ⭐ проверка НЕ является изменением</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">JINJA2 + YAML</span>
+          <span>Шаблон юнита и handlers</span>
+        </div>
+        <pre># templates/node_exporter.service.j2
+[Unit]
+Description=Prometheus Node Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ node_exporter_user }}
+ExecStart=/usr/local/bin/node_exporter --web.listen-address=:{{ node_exporter_port }}
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+
+# handlers/main.yml
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart node_exporter
+  ansible.builtin.service:
+    name: node_exporter
+    state: restarted</pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="lang">BASH</span>
+          <span>Раскатка и проверка идемпотентности</span>
+        </div>
+        <pre># 1) Сначала вхолостую — что вообще произойдёт:
+ansible-playbook -i inventory/prod site.yml --tags node_exporter --check --diff
+
+# 2) Одна машина (канарейка):
+ansible-playbook -i inventory/prod site.yml --tags node_exporter --limit web01
+
+# 3) ⭐⭐ ГЛАВНЫЙ ТЕСТ: повторный прогон должен дать changed=0
+ansible-playbook -i inventory/prod site.yml --tags node_exporter --limit web01
+#    PLAY RECAP: ok=9  changed=0  failed=0
+#    ⭐ changed НЕ ноль на втором прогоне = роль НЕ идемпотентна, чинить.
+
+# 4) Весь парк, пачками по 20 машин, чтобы не положить сеть/репозиторий:
+ansible-playbook -i inventory/prod site.yml --tags node_exporter --forks 20
+
+# 5) Проверить снаружи:
+ansible all -i inventory/prod -m uri \
+  -a "url=http://{{ ansible_host }}:9100/metrics status_code=200" --one-line</pre>
+      </div>
+
+      <div class="note">
+        <strong>Отдельный случай — установка Puppet-агента через Ansible.</strong> Очень частая прод-схема: Ansible один раз ставит и регистрирует агента (репозиторий, <code>csr_attributes.yaml</code> с ролью ноды, первый прогон с <code>--waitforcert</code>), дальше машину держит уже Puppet. Полный playbook разобран в разделе <a href="iac.html#iac-s11" style="color:#58a6ff;">IaC → Ansible + Puppet</a>.
+      </div>
+
+      <h2 id="ansible-s6">Puppet — тот же конфиг-менеджмент, но с агентами</h2>
       <p>Второй по популярности инструмент управления конфигурацией (в энтерпрайзе и банках — часто первый). Решает ту же задачу, что Ansible — «приведи 100 серверов к описанному состоянию», — но противоположным способом.</p>
 
       <div class="code-block">
@@ -225,6 +478,10 @@ file { '/etc/nginx/nginx.conf':
 
       <div class="note">
         <strong>Формула для собеса:</strong> Ansible — agentless push по SSH, просто начать, хорош для оркестрации и разовых раскаток. Puppet — агентный pull с центральным сервером, хорош там, где тысячи машин должны <em>постоянно</em> сами держать себя в заданном состоянии. Не «кто лучше», а разные модели доставки одного и того же.
+      </div>
+
+      <div class="note">
+        📖 <strong>Полный разбор Puppet</strong> — архитектура и цикл агента, control-repo и r10k, классы и модули, шаблоны <code>.epp</code>, Roles &amp; Profiles, Hiera и правила для одной ноды против глобальных, боевые примеры (пользователи, приветственная страница, мониторинг с алертингом, деплой приложения) и разведка на чужом проде — в разделе <a href="iac.html#iac-s12" style="color:#58a6ff;">IaC → Puppet</a>.
       </div>
     </section>
 

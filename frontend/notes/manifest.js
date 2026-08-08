@@ -369,12 +369,136 @@ const NOTES_MANIFEST = [
  },
  {
   "id": "iac",
-  "title": "🏗 IaC — Infrastructure as Code",
-  "short": "IaC",
+  "title": "🏗 IaC — Terraform / Ansible / Puppet",
+  "short": "IaC (Terraform/Ansible/Puppet)",
   "subs": [
    {
     "id": "iac-s0",
-    "title": "Terraform"
+    "title": "Три инструмента: кто за что отвечает"
+   },
+   {
+    "id": "iac-s1",
+    "title": "Terraform — жизненный цикл"
+   },
+   {
+    "id": "iac-s2",
+    "title": "Terraform — HCL: ресурсы и ссылки"
+   },
+   {
+    "id": "iac-s3",
+    "title": "Terraform — state"
+   },
+   {
+    "id": "iac-s4",
+    "title": "Terraform — variables, tfvars, outputs"
+   },
+   {
+    "id": "iac-s5",
+    "title": "Terraform — модули и структура репозитория"
+   },
+   {
+    "id": "iac-s6",
+    "title": "Terraform — backend, workspaces, окружения"
+   },
+   {
+    "id": "iac-s7",
+    "title": "Terraform — count, for_each, data, lifecycle"
+   },
+   {
+    "id": "iac-s8",
+    "title": "Terraform → Ansible/Puppet: передача эстафеты"
+   },
+   {
+    "id": "iac-s9",
+    "title": "Ansible — место в IaC и структура репозитория"
+   },
+   {
+    "id": "iac-s10",
+    "title": "Ansible — роли, переменные, шаблоны Jinja2"
+   },
+   {
+    "id": "iac-s11",
+    "title": "Ansible + Puppet: не «или», а «и»"
+   },
+   {
+    "id": "iac-s12",
+    "title": "Puppet — архитектура и цикл агента"
+   },
+   {
+    "id": "iac-s13",
+    "title": "Puppet — установка сервера, агента, сертификаты"
+   },
+   {
+    "id": "iac-s14",
+    "title": "Puppet — что где лежит на боевом сервере"
+   },
+   {
+    "id": "iac-s15",
+    "title": "Puppet — control-repo: структура прод-проекта"
+   },
+   {
+    "id": "iac-s16",
+    "title": "Puppet — язык: ресурсы и зависимости"
+   },
+   {
+    "id": "iac-s17",
+    "title": "Puppet — классы: параметры и include"
+   },
+   {
+    "id": "iac-s18",
+    "title": "Puppet — модуль, автозагрузка, расширения файлов"
+   },
+   {
+    "id": "iac-s19",
+    "title": "Puppet — шаблоны .epp и .erb"
+   },
+   {
+    "id": "iac-s20",
+    "title": "Puppet — Roles & Profiles: как заполнять"
+   },
+   {
+    "id": "iac-s21",
+    "title": "Puppet — site.pp и классификация нод"
+   },
+   {
+    "id": "iac-s22",
+    "title": "Puppet — Hiera: иерархия и lookup"
+   },
+   {
+    "id": "iac-s23",
+    "title": "Puppet — правила для одной ноды и глобально"
+   },
+   {
+    "id": "iac-s24",
+    "title": "Puppet — секреты: hiera-eyaml"
+   },
+   {
+    "id": "iac-s25",
+    "title": "Puppet — пример: пользователи, sudo, ключи"
+   },
+   {
+    "id": "iac-s26",
+    "title": "Puppet — пример: приветственная страница"
+   },
+   {
+    "id": "iac-s27",
+    "title": "Puppet — пример: мониторинг и алертинг"
+   },
+   {
+    "id": "iac-s28",
+    "title": "Puppet — пример: деплой приложения"
+   },
+   {
+    "id": "iac-s29",
+    "title": "Puppet — как разобраться в чужом проде"
+   },
+   {
+    "id": "iac-s30",
+    "title": "Puppet — отладка и типовые ошибки"
+   },
+   {
+    "id": "iac-s31",
+    "title": "Puppet — cheatsheet и best practices"
    }
   ]
  },
@@ -405,6 +529,10 @@ const NOTES_MANIFEST = [
    },
    {
     "id": "ansible-s5",
+    "title": "Установка агента на сервер — правильно"
+   },
+   {
+    "id": "ansible-s6",
     "title": "Puppet — тот же конфиг-менеджмент, но с агентами"
    }
   ]
